@@ -191,7 +191,7 @@ const SETTINGS_KEY = "cc-word-addin-settings-v1";
 function defaultSettings() {
   return {
     showDiagnostics: true,
-    autoSwitchMatter: false,
+    autoSwitchWorkspace: false,
     trackChangesMode: "always", // "always" | "modifications" | "never"
   };
 }
@@ -216,8 +216,8 @@ function applySettings() {
   $messages.dataset.showDiagnostics = String(settings.showDiagnostics);
   const $showDiag = document.getElementById("setting-show-diagnostics");
   if ($showDiag) $showDiag.checked = settings.showDiagnostics;
-  const $autoSwitch = document.getElementById("setting-auto-switch-matter");
-  if ($autoSwitch) $autoSwitch.checked = settings.autoSwitchMatter;
+  const $autoSwitch = document.getElementById("setting-auto-switch-workspace");
+  if ($autoSwitch) $autoSwitch.checked = settings.autoSwitchWorkspace;
   const $tcMode = document.getElementById("setting-track-changes-mode");
   if ($tcMode) $tcMode.value = settings.trackChangesMode || "always";
 }
@@ -238,14 +238,14 @@ document.getElementById("setting-track-changes-mode").addEventListener("change",
   }
 });
 
-document.getElementById("setting-auto-switch-matter").addEventListener("change", (e) => {
-  settings.autoSwitchMatter = e.target.checked;
+document.getElementById("setting-auto-switch-workspace").addEventListener("change", (e) => {
+  settings.autoSwitchWorkspace = e.target.checked;
   saveSettings(settings);
   applySettings();
   // Re-evaluate the suggest banner — turning on auto-switch may now silently
   // fire a marker-confidence switch; turning it off should leave the banner
   // visible if there's still a mismatch.
-  refreshMatterSuggestBanner();
+  refreshWorkspaceSuggestBanner();
 });
 
 applySettings();
@@ -303,7 +303,7 @@ async function handleServerMessage(msg) {
   switch (msg.type) {
     case "welcome":
       setStatus("ok", "Ready");
-      refreshMatterFromDaemon();
+      refreshWorkspaceFromDaemon();
       break;
 
     case "assistant_text":
@@ -321,15 +321,13 @@ async function handleServerMessage(msg) {
       } else if (msg.event === "session_init") {
         appendEvent(`Session ${msg.session_id?.slice(0, 8)}… (${msg.model})`);
       } else if (msg.event === "cwd_changed") {
-        setMatterDisplay(msg.cwd);
-        appendEvent(`Switched to matter: ${msg.cwd.split(/[\\/]/).filter(Boolean).pop()}${msg.resumed ? " (resumed prior session)" : ""}`);
-        // Per-matter disclosure must be re-read for the new matter.
-        disclosureCache = null;
-        if (document.body.dataset.activeTab === "setup") loadDisclosure(true);
+        setWorkspaceDisplay(msg.cwd);
+        appendEvent(`Switched to workspace: ${msg.cwd.split(/[\\/]/).filter(Boolean).pop()}${msg.resumed ? " (resumed prior session)" : ""}`);
+        // Per-workspace context must be re-read for the new workspace.
+        contextCache = null;
+        if (document.body.dataset.activeTab === "setup") loadContext(true);
       } else if (msg.event === "config_reloaded") {
-        const what = msg.reason === "disclosure_changed" ? "disclosure materials"
-                  : msg.reason === "drafting_setup_changed" ? "drafting setup"
-                  : "config";
+        const what = msg.reason === "context_changed" ? "context files" : "config";
         appendEvent(`Session reloaded — ${what} updated.`);
       }
       break;
@@ -1216,9 +1214,8 @@ function setActiveTab(tabName) {
     btn.setAttribute("aria-current", btn.dataset.tab === tabName ? "page" : "false");
   });
   if (tabName === "setup") {
-    loadDraftingSetup();
-    loadDisclosure();
-    loadMatterSection();
+    loadContext();
+    loadWorkspaceSection();
   }
 }
 
@@ -1235,42 +1232,34 @@ const PRESETS_KEY = "cc-word-addin-presets-v1";
 function defaultPresets() {
   return [
     // QC
-    { id: uuid(), title: "Check claims for antecedent basis", category: "QC",
-      prompt: "Review the CLAIMS section for antecedent basis problems. Use office_highlight to flag each problematic term with severity 'warning'. Summarize findings in chat with paragraph IDs.",
+    // Summarize / outline
+    { id: uuid(), title: "Summarize this document", category: "Summarize",
+      prompt: "Read the whole document and give me a tight summary — main argument, key points, anything notable. Don't edit the document.",
       pinned: true, auto_send: true },
-    { id: uuid(), title: "Check terminology consistency", category: "QC",
-      prompt: "Check the spec for inconsistent terminology — same concept referred to by different names across sections. Highlight inconsistencies and summarize.",
-      pinned: false, auto_send: true },
-    { id: uuid(), title: "Find undefined claim terms", category: "QC",
-      prompt: "List every significant term in the claims that lacks a clear antecedent or definition in the Detailed Description.",
+    { id: uuid(), title: "Outline this document", category: "Summarize",
+      prompt: "Show me the heading outline of this document with paragraph counts per section. Don't edit anything.",
       pinned: false, auto_send: true },
 
-    // Drafting
-    { id: uuid(), title: "Outline this spec", category: "Drafting",
-      prompt: "Show me the heading outline of this document with paragraph counts per section.",
+    // Edit
+    { id: uuid(), title: "Improve writing in selection", category: "Edit",
+      prompt: "Improve the writing in my current selection — clearer, tighter, no redundancy, preserve meaning. Use track changes.",
       pinned: true, auto_send: true },
-    { id: uuid(), title: "Draft Background from disclosure/", category: "Drafting",
-      prompt: "Read the files in the disclosure/ subfolder of this matter. Draft a Background section based on them with track changes on. Add a Word comment on the first paragraph citing the sources used.",
-      pinned: false, auto_send: false },
-    { id: uuid(), title: "Suggest claim variations", category: "Drafting",
-      prompt: "Based on the Detailed Description, suggest 3-5 claim variations (broader, narrower, and method/system variants) that could be added.",
-      pinned: false, auto_send: false },
-
-    // Research
-    { id: uuid(), title: "Find paragraphs mentioning…", category: "Research",
-      prompt: "Find every paragraph in this spec that mentions: ",
-      pinned: false, auto_send: false },
-    { id: uuid(), title: "Show claim dependency tree", category: "Research",
-      prompt: "Show me the dependency tree of the claims — which claims depend on which, and which are independent.",
+    { id: uuid(), title: "Fix typos and inconsistencies", category: "Edit",
+      prompt: "Scan the whole document for typos, grammar errors, and inconsistencies (terminology, capitalization, punctuation). Use office_highlight with severity 'warning' for each issue and summarize them in chat.",
       pinned: false, auto_send: true },
-
-    // Style
-    { id: uuid(), title: "Simplify the selection", category: "Style",
+    { id: uuid(), title: "Simplify the selection", category: "Edit",
       prompt: "Simplify the selected paragraph for clarity without losing meaning. Use track changes.",
-      pinned: true, auto_send: true },
-    { id: uuid(), title: "Tighten the selection", category: "Style",
-      prompt: "Tighten the selected text — remove redundancy and wordiness while preserving meaning. Use track changes.",
       pinned: false, auto_send: true },
+
+    // Review
+    { id: uuid(), title: "Add comments on this section", category: "Review",
+      prompt: "Review the section my selection is in. Add Word comments on each paragraph that has a problem (unclear phrasing, weak argument, missing detail). Don't edit the text itself.",
+      pinned: false, auto_send: true },
+
+    // Research (uses context files)
+    { id: uuid(), title: "Answer using my context files", category: "Research",
+      prompt: "Use the context files I've added to this workspace to answer: ",
+      pinned: false, auto_send: false },
 
     ...defaultEditingPresets(),
   ];
@@ -1542,156 +1531,47 @@ $presetSave.addEventListener("click", () => {
 document.getElementById("add-preset").addEventListener("click", () => openPresetModal(null));
 
 // ===========================================================================
-// Setup tab — drafting guidelines + sample applications.
-// Word-add-in scoped: persisted to ~/.claude/word-addin/drafting-setup.md
-// and injected by the daemon into the system prompt at agent-loop start.
+// Setup tab — Context files (folders or individual files saved to the
+// workspace's CLAUDE.md, loaded by Claude Code each session).
 // ===========================================================================
-let setupCache = null;                  // { guidelines: [...], samples: [...] }
-let setupLoadingPromise = null;
+let contextCache = null;
+let contextLoadingPromise = null;
+const $contextList = document.getElementById("context-list");
 
-const $guidelinesList = document.getElementById("guidelines-list");
-const $samplesList = document.getElementById("samples-list");
+async function removeContextEntryAt(idx) {
+  if (!contextCache) return;
+  contextCache = contextCache.filter((_, i) => i !== idx);
+  await saveContext();
+}
 
-async function loadDraftingSetup(force = false) {
-  if (setupCache && !force) { renderDraftingSetup(); return; }
-  if (setupLoadingPromise) return setupLoadingPromise;
-  setupLoadingPromise = (async () => {
+async function loadContext(force = false) {
+  if (contextCache && !force) { renderContext(); return; }
+  if (contextLoadingPromise) return contextLoadingPromise;
+  contextLoadingPromise = (async () => {
     try {
-      $guidelinesList.innerHTML = '<div class="references-loading">Loading…</div>';
-      $samplesList.innerHTML = '<div class="references-loading">Loading…</div>';
-      const r = await sendRequest("get_drafting_setup");
-      setupCache = {
-        guidelines: r.setup?.guidelines ?? [],
-        samples: r.setup?.samples ?? [],
-      };
-      renderDraftingSetup();
+      $contextList.innerHTML = '<div class="references-loading">Loading…</div>';
+      const r = await sendRequest("get_context");
+      contextCache = Array.isArray(r.entries) ? r.entries : [];
+      renderContext();
     } catch (e) {
-      showListMessage($guidelinesList, "references-empty", `Could not load: ${e.message}`);
-      showListMessage($samplesList, "references-empty", `Could not load: ${e.message}`);
+      showListMessage($contextList, "references-empty", `Could not load: ${e.message}`);
     } finally {
-      setupLoadingPromise = null;
+      contextLoadingPromise = null;
     }
   })();
-  return setupLoadingPromise;
+  return contextLoadingPromise;
 }
 
-function renderList(container, refs, kind) {
-  container.innerHTML = "";
-  if (!refs || refs.length === 0) {
+function renderContext() {
+  $contextList.innerHTML = "";
+  if (!contextCache || contextCache.length === 0) {
     const empty = document.createElement("div");
     empty.className = "references-empty";
-    empty.textContent = "No folders yet.";
-    container.appendChild(empty);
+    empty.textContent = "No context files yet — add a folder or file to give Claude background.";
+    $contextList.appendChild(empty);
     return;
   }
-  refs.forEach((ref, i) => {
-    const row = document.createElement("div");
-    row.className = "reference-row";
-    row.title = ref.path;
-
-    const info = document.createElement("div");
-    info.className = "reference-info";
-    const pathEl = document.createElement("div");
-    pathEl.className = "reference-path";
-    pathEl.textContent = ref.path;
-    info.appendChild(pathEl);
-    if (ref.description) {
-      const desc = document.createElement("div");
-      desc.className = "reference-description";
-      desc.textContent = ref.description;
-      info.appendChild(desc);
-    }
-    row.appendChild(info);
-
-    const remove = document.createElement("button");
-    remove.className = "reference-remove";
-    remove.type = "button";
-    remove.title = "Remove";
-    remove.textContent = "✕";
-    remove.addEventListener("click", () => removeFolderAt(kind, i));
-    row.appendChild(remove);
-
-    container.appendChild(row);
-  });
-}
-
-function renderDraftingSetup() {
-  renderList($guidelinesList, setupCache?.guidelines, "guidelines");
-  renderList($samplesList, setupCache?.samples, "samples");
-}
-
-async function saveDraftingSetup() {
-  if (!setupCache) return false;
-  try {
-    const r = await sendRequest("set_drafting_setup", {
-      guidelines: setupCache.guidelines,
-      samples: setupCache.samples,
-    });
-    if (r.errors && r.errors.length > 0) {
-      const lines = r.errors.map(e => `${e.kind}: ${e.path} — ${e.error}`).join("\n");
-      alert(`Some folders could not be saved:\n\n${lines}`);
-    }
-    // Trust the daemon's validated lists.
-    setupCache = {
-      guidelines: r.saved?.guidelines ?? setupCache.guidelines,
-      samples: r.saved?.samples ?? setupCache.samples,
-    };
-    renderDraftingSetup();
-    return true;
-  } catch (e) {
-    alert(`Could not save: ${e.message}`);
-    return false;
-  }
-}
-
-async function removeFolderAt(kind, idx) {
-  // No confirm dialog — Office.js taskpanes block native confirm() in some
-  // builds, leaving the X button silently no-op. Just remove; the user can
-  // re-add if they made a mistake.
-  if (kind === "disclosure") {
-    if (!disclosureCache) return;
-    disclosureCache = disclosureCache.filter((_, i) => i !== idx);
-    await saveDisclosure();
-    return;
-  }
-  if (!setupCache || !setupCache[kind]) return;
-  setupCache[kind] = setupCache[kind].filter((_, i) => i !== idx);
-  await saveDraftingSetup();
-}
-
-// ---- Per-matter disclosure materials --------------------------------------
-let disclosureCache = null;
-let disclosureLoadingPromise = null;
-const $disclosureList = document.getElementById("disclosure-list");
-
-async function loadDisclosure(force = false) {
-  if (disclosureCache && !force) { renderDisclosure(); return; }
-  if (disclosureLoadingPromise) return disclosureLoadingPromise;
-  disclosureLoadingPromise = (async () => {
-    try {
-      $disclosureList.innerHTML = '<div class="references-loading">Loading…</div>';
-      const r = await sendRequest("get_matter_disclosure");
-      disclosureCache = Array.isArray(r.entries) ? r.entries : [];
-      renderDisclosure();
-    } catch (e) {
-      showListMessage($disclosureList, "references-empty", `Could not load: ${e.message}`);
-    } finally {
-      disclosureLoadingPromise = null;
-    }
-  })();
-  return disclosureLoadingPromise;
-}
-
-function renderDisclosure() {
-  $disclosureList.innerHTML = "";
-  if (!disclosureCache || disclosureCache.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "references-empty";
-    empty.textContent = "No disclosure materials yet.";
-    $disclosureList.appendChild(empty);
-    return;
-  }
-  disclosureCache.forEach((e, i) => {
+  contextCache.forEach((e, i) => {
     const row = document.createElement("div");
     row.className = "reference-row";
     row.title = e.path;
@@ -1700,7 +1580,6 @@ function renderDisclosure() {
     info.className = "reference-info";
     const pathEl = document.createElement("div");
     pathEl.className = "reference-path";
-    // Show a kind tag prefix
     const tag = document.createElement("span");
     tag.className = "kind-tag";
     tag.textContent = e.kind || "?";
@@ -1720,23 +1599,23 @@ function renderDisclosure() {
     remove.type = "button";
     remove.title = "Remove";
     remove.textContent = "✕";
-    remove.addEventListener("click", () => removeFolderAt("disclosure", i));
+    remove.addEventListener("click", () => removeContextEntryAt(i));
     row.appendChild(remove);
 
-    $disclosureList.appendChild(row);
+    $contextList.appendChild(row);
   });
 }
 
-async function saveDisclosure() {
-  if (!disclosureCache) return false;
+async function saveContext() {
+  if (!contextCache) return false;
   try {
-    const r = await sendRequest("set_matter_disclosure", { entries: disclosureCache });
+    const r = await sendRequest("set_context", { entries: contextCache });
     if (r.errors && r.errors.length > 0) {
       const lines = r.errors.map(e => `${e.path} — ${e.error}`).join("\n");
       alert(`Some entries could not be saved:\n\n${lines}`);
     }
-    disclosureCache = Array.isArray(r.saved) ? r.saved : disclosureCache;
-    renderDisclosure();
+    contextCache = Array.isArray(r.saved) ? r.saved : contextCache;
+    renderContext();
     return true;
   } catch (e) {
     alert(`Could not save: ${e.message}`);
@@ -1755,15 +1634,8 @@ const $addFolderCancel = document.getElementById("add-folder-cancel");
 const $addFolderModalClose = document.getElementById("add-folder-modal-close");
 const $addFolderBrowse = document.getElementById("add-folder-browse");
 
-let addFolderActiveKind = null;
-
-function openAddFolderModal(kind) {
-  addFolderActiveKind = kind;
-  $addFolderModalTitle.textContent =
-    kind === "guidelines" ? "Add guideline folder" :
-    kind === "samples"    ? "Add sample-applications folder" :
-    kind === "disclosure" ? "Add disclosure material (folder or file)" :
-                            "Add";
+function openAddFolderModal() {
+  $addFolderModalTitle.textContent = "Add folder or file";
   $addFolderPath.value = "";
   $addFolderDescription.value = "";
   $addFolderError.hidden = true;
@@ -1772,11 +1644,10 @@ function openAddFolderModal(kind) {
 }
 function closeAddFolderModal() {
   $addFolderModal.hidden = true;
-  addFolderActiveKind = null;
 }
 
 document.querySelectorAll(".add-folder-trigger").forEach(btn => {
-  btn.addEventListener("click", () => openAddFolderModal(btn.dataset.kind));
+  btn.addEventListener("click", () => openAddFolderModal());
 });
 $addFolderCancel.addEventListener("click", closeAddFolderModal);
 $addFolderModalClose.addEventListener("click", closeAddFolderModal);
@@ -1793,20 +1664,11 @@ $addFolderSave.addEventListener("click", async () => {
     $addFolderError.hidden = false;
     return;
   }
-  const kind = addFolderActiveKind;
-  if (kind === "disclosure") {
-    if (!disclosureCache) await loadDisclosure();
-    if (!disclosureCache) disclosureCache = [];
-    disclosureCache = [...disclosureCache, { path, description }];
-    const ok = await saveDisclosure();
-    if (ok) closeAddFolderModal();
-  } else {
-    if (!setupCache) await loadDraftingSetup();
-    if (!setupCache[kind]) setupCache[kind] = [];
-    setupCache[kind] = [...setupCache[kind], { path, description }];
-    const ok = await saveDraftingSetup();
-    if (ok) closeAddFolderModal();
-  }
+  if (!contextCache) await loadContext();
+  if (!contextCache) contextCache = [];
+  contextCache = [...contextCache, { path, description }];
+  const ok = await saveContext();
+  if (ok) closeAddFolderModal();
 });
 
 // ---- Native folder/file picker ---------------------------------------------
@@ -1827,11 +1689,9 @@ async function pickPathNative({ start_path = null, include_files = false, title 
 }
 
 $addFolderBrowse.addEventListener("click", async () => {
-  const startPath = $addFolderPath.value.trim() || null;
-  // For disclosure, allow picking either a folder or a file.
-  const includeFiles = addFolderActiveKind === "disclosure";
+  const startPath = $addFolderPath.value.trim() || currentWorkspaceCwd || null;
   try {
-    const picked = await pickPathNative({ start_path: startPath, include_files: includeFiles });
+    const picked = await pickPathNative({ start_path: startPath, include_files: true });
     if (!picked) return;
     $addFolderPath.value = picked.path;
     $addFolderDescription.focus();
@@ -1848,13 +1708,13 @@ $addFolderDescription.addEventListener("keydown", (e) => {
 });
 
 // ===========================================================================
-// Matter selection — managed in the Setup tab's Per-matter section.
-// The topbar chip is read-only status (current matter name + mismatch warning);
+// Workspace selection — managed in the Setup tab's Workspace section.
+// The topbar chip is read-only status (current workspace name + mismatch warning);
 // clicking it navigates to the Setup tab where the actual switching UI lives.
 // ===========================================================================
-let currentMatterCwd = null;
+let currentWorkspaceCwd = null;
 
-// Path containment check that handles the /Matter-10 vs /Matter-1 trap —
+// Path containment check that handles the /Workspace-10 vs /Workspace-1 trap —
 // `startsWith` alone returns true for both. We normalize the parent by
 // stripping any trailing separator and then require child to be the parent
 // exactly OR start with `<parent>/`. Case-sensitive (matches Node's path
@@ -1876,115 +1736,115 @@ function showListMessage(container, klass, message) {
   container.appendChild(div);
 }
 
-const $matterChip = document.getElementById("matter-chip");
-const $matterFolder = document.getElementById("matter-folder");
-const $mattersList = document.getElementById("matters-list");
-const $addMatter = document.getElementById("add-matter");
-const $matterError = document.getElementById("matter-error");
-const $matterWarning = document.getElementById("matter-warning");
+const $workspaceChip = document.getElementById("workspace-chip");
+const $workspaceFolder = document.getElementById("workspace-folder");
+const $workspacesList = document.getElementById("workspaces-list");
+const $addWorkspace = document.getElementById("add-workspace");
+const $workspaceError = document.getElementById("workspace-error");
+const $workspaceWarning = document.getElementById("workspace-warning");
 
-// Suggest-banner: shown in Setup → Matter folder when the active doc's
-// folder isn't inside the current matter and the daemon's suggestMatterRoot
+// Suggest-banner: shown in Setup → Workspace folder when the active doc's
+// folder isn't inside the current workspace and the daemon's suggestWorkspaceRoot
 // returns a candidate. Lets the user one-click confirm, pick a different
 // folder, or dismiss.
-const $matterSuggest = document.getElementById("matter-suggest");
-const $matterSuggestPath = document.getElementById("matter-suggest-path");
-const $matterSuggestAccept = document.getElementById("matter-suggest-accept");
-const $matterSuggestPick = document.getElementById("matter-suggest-pick");
-const $matterSuggestDismiss = document.getElementById("matter-suggest-dismiss");
-let pendingSuggestion = null;     // { cwd, confidence } from the daemon
-let dismissedSuggestionForDoc = null; // activeDocUrl the user dismissed for
+const $workspaceSuggest = document.getElementById("workspace-suggest");
+const $workspaceSuggestPath = document.getElementById("workspace-suggest-path");
+const $workspaceSuggestAccept = document.getElementById("workspace-suggest-accept");
+const $workspaceSuggestPick = document.getElementById("workspace-suggest-pick");
+const $workspaceSuggestDismiss = document.getElementById("workspace-suggest-dismiss");
+let pendingWorkspaceSuggestion = null;     // { cwd, confidence } from the daemon
+let dismissedWorkspaceSuggestionForDoc = null; // activeDocUrl the user dismissed for
 
-function setMatterDisplay(cwd) {
-  currentMatterCwd = cwd;
-  const name = cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() : "(no matter)";
-  $matterFolder.textContent = name;
-  $matterFolder.title = cwd || "";
+function setWorkspaceDisplay(cwd) {
+  currentWorkspaceCwd = cwd;
+  const name = cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() : "(no workspace)";
+  $workspaceFolder.textContent = name;
+  $workspaceFolder.title = cwd || "";
   refreshMismatchIndicator();
 }
 
-// Decide whether the matter chip should show a warning. True when an active
-// doc exists and its filesystem location is NOT inside the current matter
+// Decide whether the workspace chip should show a warning. True when an active
+// doc exists and its filesystem location is NOT inside the current workspace
 // folder — the agent's filesystem tools won't see the doc's siblings.
 function refreshMismatchIndicator() {
   let mismatch = false;
-  if (activeDocUrl && currentMatterCwd) {
+  if (activeDocUrl && currentWorkspaceCwd) {
     let docPath = decodeURIComponent(activeDocUrl.replace(/^file:\/\//, ""));
     // Strip the filename
     const docDir = docPath.split(/[\\/]/).slice(0, -1).join("/");
-    // Mismatch if docDir isn't underneath the matter cwd
-    mismatch = docDir && !isInOrUnder(docDir, currentMatterCwd);
+    // Mismatch if docDir isn't underneath the workspace cwd
+    mismatch = docDir && !isInOrUnder(docDir, currentWorkspaceCwd);
   }
-  const baseTitle = "The agent reads source files (CLAUDE.md, disclosure, prior art) from the matter folder — click to switch matters.";
+  const baseTitle = "The agent reads source files (CLAUDE.md, notes, references) from the workspace folder — click to switch workspaces.";
   if (mismatch) {
-    $matterChip.classList.add("mismatch");
-    $matterWarning.hidden = false;
-    $matterChip.title = baseTitle + " (⚠ The current matter doesn't match the doc you're editing.)";
+    $workspaceChip.classList.add("mismatch");
+    $workspaceWarning.hidden = false;
+    $workspaceChip.title = baseTitle + " (⚠ The current workspace doesn't match the doc you're editing.)";
   } else {
-    $matterChip.classList.remove("mismatch");
-    $matterWarning.hidden = true;
-    $matterChip.title = baseTitle;
+    $workspaceChip.classList.remove("mismatch");
+    $workspaceWarning.hidden = true;
+    $workspaceChip.title = baseTitle;
   }
 }
 
-async function refreshMatterFromDaemon() {
+async function refreshWorkspaceFromDaemon() {
   try {
     const r = await sendRequest("get_cwd_state");
-    if (r.current_cwd) setMatterDisplay(r.current_cwd);
-    await refreshMatterSuggestBanner();
+    if (r.current_cwd) setWorkspaceDisplay(r.current_cwd);
+    await refreshWorkspaceSuggestBanner();
   } catch { /* ignore on initial boot */ }
 }
 
-async function loadMatterSection() {
-  $matterError.hidden = true;
-  await refreshMatterSuggestBanner();
+async function loadWorkspaceSection() {
+  $workspaceError.hidden = true;
+  await refreshWorkspaceSuggestBanner();
   try {
     const r = await sendRequest("get_cwd_state");
-    renderMattersList(r.recent || [], r.current_cwd);
+    renderWorkspacesList(r.recent || [], r.current_cwd);
   } catch (e) {
-    showListMessage($mattersList, "references-empty", `Could not load: ${e.message}`);
+    showListMessage($workspacesList, "references-empty", `Could not load: ${e.message}`);
   }
 }
 
 // Banner controller: shown when the active Word doc lives outside the
-// current matter and the daemon has a candidate matter root to suggest.
-// When confidence=marker AND autoSwitchMatter is on, we skip the banner
+// current workspace and the daemon has a candidate workspace root to suggest.
+// When confidence=marker AND autoSwitchWorkspace is on, we skip the banner
 // and fire the switch directly (the user previously committed to that
 // folder by dropping a marker; no reason to ask again).
-async function refreshMatterSuggestBanner() {
-  pendingSuggestion = null;
-  $matterSuggest.hidden = true;
+async function refreshWorkspaceSuggestBanner() {
+  pendingWorkspaceSuggestion = null;
+  $workspaceSuggest.hidden = true;
 
   if (!activeDocUrl) return;
-  if (dismissedSuggestionForDoc === activeDocUrl) return;
+  if (dismissedWorkspaceSuggestionForDoc === activeDocUrl) return;
 
   const docDir = decodeURIComponent(activeDocUrl.replace(/^file:\/\//, ""))
     .split(/[\\/]/).slice(0, -1).join("/");
-  if (currentMatterCwd && isInOrUnder(docDir, currentMatterCwd)) return;
+  if (currentWorkspaceCwd && isInOrUnder(docDir, currentWorkspaceCwd)) return;
 
   let suggestion = null;
   try {
-    const r = await sendRequest("suggest_matter", { doc_path: activeDocUrl });
+    const r = await sendRequest("suggest_workspace", { doc_path: activeDocUrl });
     suggestion = r.suggestion;
   } catch (e) {
-    console.warn("[suggest_matter]", e);
+    console.warn("[suggest_workspace]", e);
     return;
   }
   if (!suggestion) return;
 
-  if (suggestion.confidence === "marker" && settings.autoSwitchMatter) {
+  if (suggestion.confidence === "marker" && settings.autoSwitchWorkspace) {
     doSwitch(null, { autodetectFromDoc: true });
     return;
   }
 
-  pendingSuggestion = suggestion;
-  $matterSuggestPath.textContent = suggestion.cwd;
-  $matterSuggestPath.title = suggestion.cwd;
-  $matterSuggest.hidden = false;
+  pendingWorkspaceSuggestion = suggestion;
+  $workspaceSuggestPath.textContent = suggestion.cwd;
+  $workspaceSuggestPath.title = suggestion.cwd;
+  $workspaceSuggest.hidden = false;
 }
 
-function renderMattersList(recent, currentCwd) {
-  // Ensure the currently-active matter is in the list even if not in recent
+function renderWorkspacesList(recent, currentCwd) {
+  // Ensure the currently-active workspace is in the list even if not in recent
   // (e.g., daemon was launched at this folder but no one's "switched" to it
   // yet, so it isn't in the recents file).
   let list = Array.isArray(recent) ? [...recent] : [];
@@ -1995,9 +1855,9 @@ function renderMattersList(recent, currentCwd) {
     });
   }
 
-  $mattersList.innerHTML = "";
+  $workspacesList.innerHTML = "";
   if (list.length === 0) {
-    $mattersList.innerHTML = '<div class="references-empty">No matters yet.</div>';
+    $workspacesList.innerHTML = '<div class="references-empty">No workspaces yet.</div>';
     return;
   }
 
@@ -2039,7 +1899,7 @@ function renderMattersList(recent, currentCwd) {
         e.stopPropagation();
         try {
           await sendRequest("forget_folder", { cwd: f.cwd });
-          loadMatterSection();
+          loadWorkspaceSection();
         } catch (err) {
           console.warn("forget_folder failed:", err);
         }
@@ -2049,12 +1909,12 @@ function renderMattersList(recent, currentCwd) {
       row.addEventListener("click", () => doSwitch(f.cwd));
     }
 
-    $mattersList.appendChild(row);
+    $workspacesList.appendChild(row);
   }
 }
 
 async function doSwitch(cwd, { autodetectFromDoc = false } = {}) {
-  $matterError.hidden = true;
+  $workspaceError.hidden = true;
   try {
     const payload = autodetectFromDoc
       ? { autodetect_from_doc: activeDocUrl }
@@ -2065,46 +1925,46 @@ async function doSwitch(cwd, { autodetectFromDoc = false } = {}) {
     // Clear chat — visually distinguishing the new session from the old.
     $messages.innerHTML = "";
     assistantTurnElem = null;
-    // Refresh the matter section so recent-folders ordering updates.
-    loadMatterSection();
+    // Refresh the workspace section so recent-folders ordering updates.
+    loadWorkspaceSection();
   } catch (e) {
-    $matterError.textContent = e.message;
-    $matterError.hidden = false;
+    $workspaceError.textContent = e.message;
+    $workspaceError.hidden = false;
   }
 }
 
-// Clicking the topbar chip jumps to the Setup tab where the matter UI lives.
-$matterChip.addEventListener("click", () => setActiveTab("setup"));
+// Clicking the topbar chip jumps to the Setup tab where the workspace UI lives.
+$workspaceChip.addEventListener("click", () => setActiveTab("setup"));
 
 // Suggest-banner buttons.
-$matterSuggestAccept.addEventListener("click", () => {
-  if (!pendingSuggestion) return;
-  const cwd = pendingSuggestion.cwd;
-  pendingSuggestion = null;
-  $matterSuggest.hidden = true;
+$workspaceSuggestAccept.addEventListener("click", () => {
+  if (!pendingWorkspaceSuggestion) return;
+  const cwd = pendingWorkspaceSuggestion.cwd;
+  pendingWorkspaceSuggestion = null;
+  $workspaceSuggest.hidden = true;
   doSwitch(cwd);
 });
-$matterSuggestPick.addEventListener("click", async () => {
-  const startPath = pendingSuggestion?.cwd || null;
-  pendingSuggestion = null;
-  $matterSuggest.hidden = true;
+$workspaceSuggestPick.addEventListener("click", async () => {
+  const startPath = pendingWorkspaceSuggestion?.cwd || null;
+  pendingWorkspaceSuggestion = null;
+  $workspaceSuggest.hidden = true;
   try {
-    const picked = await pickPathNative({ start_path: startPath, title: "Choose a matter folder" });
+    const picked = await pickPathNative({ start_path: startPath, title: "Choose a workspace folder" });
     if (picked) doSwitch(picked.path);
   } catch (e) {
     console.error("[picker]", e);
   }
 });
-$matterSuggestDismiss.addEventListener("click", () => {
-  dismissedSuggestionForDoc = activeDocUrl;
-  pendingSuggestion = null;
-  $matterSuggest.hidden = true;
+$workspaceSuggestDismiss.addEventListener("click", () => {
+  dismissedWorkspaceSuggestionForDoc = activeDocUrl;
+  pendingWorkspaceSuggestion = null;
+  $workspaceSuggest.hidden = true;
 });
 
-// "+ Add matter" — opens the native folder picker; on pick, switch to that folder.
-$addMatter.addEventListener("click", async () => {
+// "+ Add workspace" — opens the native folder picker; on pick, switch to that folder.
+$addWorkspace.addEventListener("click", async () => {
   try {
-    const picked = await pickPathNative({ title: "Choose a matter folder" });
+    const picked = await pickPathNative({ title: "Choose a workspace folder" });
     if (picked) doSwitch(picked.path);
   } catch (e) {
     console.error("[picker]", e);
