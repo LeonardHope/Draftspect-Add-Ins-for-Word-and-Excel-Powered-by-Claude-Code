@@ -1279,6 +1279,19 @@ async function toolExcelWriteRange({ address, values, sheet = null }) {
   if (!Array.isArray(values) || !values.length || !Array.isArray(values[0])) {
     throw new Error("`values` must be a non-empty 2D array.");
   }
+  // Ragged-array guard: every row must have the same length as values[0],
+  // otherwise Excel.js fails with a confusing internal error (or silently
+  // pads with undefined on some builds). Surface the offending row index.
+  const expectedCols = values[0].length;
+  for (let i = 1; i < values.length; i++) {
+    if (!Array.isArray(values[i]) || values[i].length !== expectedCols) {
+      const got = Array.isArray(values[i]) ? `${values[i].length} elements` : "not an array";
+      throw new Error(
+        `Ragged values: row ${i} is ${got} but row 0 has ${expectedCols}. ` +
+        `All rows must be the same length.`,
+      );
+    }
+  }
   return await Excel.run(async (context) => {
     const activeName = sheet || await _activeSheetName(context);
     const { sheetName, a1 } = _splitSheetAddress(address, activeName);
@@ -1287,15 +1300,15 @@ async function toolExcelWriteRange({ address, values, sheet = null }) {
     const range = ws.getRange(a1);
     range.load("rowCount, columnCount, address");
     await context.sync();
-    if (range.rowCount !== values.length || range.columnCount !== values[0].length) {
+    if (range.rowCount !== values.length || range.columnCount !== expectedCols) {
       throw new Error(
         `Shape mismatch: range ${range.address} is ${range.rowCount}×${range.columnCount} ` +
-        `but values is ${values.length}×${values[0].length}.`,
+        `but values is ${values.length}×${expectedCols}.`,
       );
     }
     range.values = values;
     await context.sync();
-    return { sheet: sheetName, address: range.address, written: values.length * values[0].length };
+    return { sheet: sheetName, address: range.address, written: values.length * expectedCols };
   });
 }
 
