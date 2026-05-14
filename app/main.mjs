@@ -1,4 +1,4 @@
-// Patspect — Electron menu bar shell.
+// Office Claude — Electron menu bar shell.
 //
 // Wraps the daemon as a child process, exposes a tray icon with status and
 // controls, hides the dock icon (we're a background-only app), and restarts
@@ -19,28 +19,32 @@ const SESSIONS_FILE = join(homedir(), ".claude", "word-addin", "sessions.json");
 const LOG_FILE = join(homedir(), ".claude", "word-addin", "daemon.log");
 
 // Don't launch the daemon with one of these as the initial cwd, even if a
-// stale sessions.json says so. Matches the set in daemon/sessions.mjs.
+// stale sessions.json says so. Matches the set in daemon/workspace.mjs.
+// macOS-only: Windows has no equivalent OS-managed children of $HOME that
+// could be silently confused with a real workspace folder.
 const HOME = homedir();
-const SYSTEM_HOME_CHILDREN = new Set([
-  join(HOME, "Library"),
-  join(HOME, "Movies"),
-  join(HOME, "Music"),
-  join(HOME, "Pictures"),
-  join(HOME, "Public"),
-]);
+const SYSTEM_HOME_CHILDREN = process.platform === "darwin"
+  ? new Set([
+      join(HOME, "Library"),
+      join(HOME, "Movies"),
+      join(HOME, "Music"),
+      join(HOME, "Pictures"),
+      join(HOME, "Public"),
+    ])
+  : new Set();
 
 let tray = null;
 let daemonProcess = null;
 let logStream = null;
 let daemonStatus = "starting"; // "starting" | "running" | "crashed" | "stopped"
-let currentMatter = null;
+let currentWorkspace = null;
 let restartAttempts = 0;
 const MAX_RESTART = 3;
 
 // --------------------------------------------------------------------------
 // Daemon lifecycle
 // --------------------------------------------------------------------------
-async function findInitialMatter() {
+async function findInitialWorkspace() {
   try {
     const state = JSON.parse(await readFile(SESSIONS_FILE, "utf8"));
     const folders = Object.entries(state.folders || {})
@@ -62,13 +66,13 @@ function openLogStream() {
 }
 
 async function startDaemon() {
-  const matter = await findInitialMatter();
-  currentMatter = matter;
+  const workspace = await findInitialWorkspace();
+  currentWorkspace = workspace;
   daemonStatus = "starting";
   updateTray();
 
   const args = [DAEMON_ENTRY];
-  if (matter) args.push(matter);
+  if (workspace) args.push(workspace);
 
   daemonProcess = spawn(process.execPath, args, {
     cwd: PROJECT_ROOT,
@@ -89,7 +93,7 @@ async function startDaemon() {
     }
     const m = /Starting session for (.+?) \(/.exec(text);
     if (m) {
-      currentMatter = m[1];
+      currentWorkspace = m[1];
       updateTray();
     }
   });
@@ -160,11 +164,13 @@ async function handleDaemonMessage(msg) {
     const properties = msg.include_files
       ? ["openFile", "openDirectory", "createDirectory"]
       : ["openDirectory", "createDirectory"];
-    // We're a tray-only (LSUIElement) app, so showOpenDialog will surface
-    // the panel *behind* whatever is frontmost (Word) by default. Force the
-    // app to the foreground first. The dock icon is hidden, so the user
-    // doesn't see Patspect "appear" — only the panel comes forward.
-    app.focus({ steal: true });
+    // On macOS we're tray-only (LSUIElement), so the open panel surfaces
+    // behind whatever is frontmost (Word/Excel) by default. Force-focus the
+    // app first; with the dock hidden the user only sees the panel come
+    // forward, not the app itself. On Windows, force-focus behaves
+    // differently (taskbar flashing) and isn't typically needed because
+    // tray apps aren't backgrounded the same way — skip it.
+    if (process.platform === "darwin") app.focus({ steal: true });
     const result = await dialog.showOpenDialog({
       title: msg.title || (msg.include_files ? "Choose a folder or file" : "Choose a folder"),
       buttonLabel: msg.button_label || "Use this",
@@ -198,16 +204,16 @@ function statusLabel() {
   }
 }
 
-function matterLabel() {
-  if (!currentMatter) return "Matter: (none)";
-  const name = currentMatter.split(/[\\/]/).filter(Boolean).pop();
-  return `Matter: ${name}`;
+function workspaceLabel() {
+  if (!currentWorkspace) return "Workspace: (none)";
+  const name = currentWorkspace.split(/[\\/]/).filter(Boolean).pop();
+  return `Workspace: ${name}`;
 }
 
 function buildMenu() {
   return Menu.buildFromTemplate([
     { label: statusLabel(), enabled: false },
-    { label: matterLabel(), enabled: false },
+    { label: workspaceLabel(), enabled: false },
     { type: "separator" },
     { label: "Open logs", click: () => shell.openPath(LOG_FILE) },
     {
@@ -219,22 +225,23 @@ function buildMenu() {
       label: "Show in Finder",
       submenu: [
         { label: "Project folder", click: () => shell.openPath(PROJECT_ROOT) },
-        ...(currentMatter
-          ? [{ label: "Current matter", click: () => shell.openPath(currentMatter) }]
+        ...(currentWorkspace
+          ? [{ label: "Current workspace", click: () => shell.openPath(currentWorkspace) }]
           : []),
         { label: "Log file", click: () => shell.showItemInFolder(LOG_FILE) },
       ],
     },
     { type: "separator" },
     { label: "Open Microsoft Word", click: () => shell.openExternal("ms-word:") },
+    { label: "Open Microsoft Excel", click: () => shell.openExternal("ms-excel:") },
     { type: "separator" },
-    { label: "Quit Patspect", click: () => app.quit() },
+    { label: "Quit Office Claude", click: () => app.quit() },
   ]);
 }
 
 function updateTray() {
   if (!tray) return;
-  tray.setToolTip(`Patspect — ${statusLabel().replace(/^●\s*/, "")}`);
+  tray.setToolTip(`Office Claude — ${statusLabel().replace(/^●\s*/, "")}`);
   tray.setContextMenu(buildMenu());
 }
 
@@ -247,12 +254,19 @@ app.whenReady().then(() => {
 
   openLogStream();
 
-  // Tray icon (template image — macOS recolors per theme).
-  const iconPath = join(__dirname, "tray-icon.png");
+  // Tray icon. macOS expects a template (monochrome with transparency, auto-
+  // recolored per theme); Windows expects a full-color .ico (or PNG fallback).
+  // Convention: tray-icon.png is the macOS template; tray-icon-win.ico is the
+  // Windows full-color version. Falls back to the PNG if .ico is missing.
+  const macIconPath = join(__dirname, "tray-icon.png");
+  const winIconPath = join(__dirname, "tray-icon-win.ico");
+  const iconPath = process.platform === "win32" && fs.existsSync(winIconPath)
+    ? winIconPath
+    : macIconPath;
   const icon = nativeImage.createFromPath(iconPath);
-  icon.setTemplateImage(true);
+  if (process.platform === "darwin") icon.setTemplateImage(true);
   tray = new Tray(icon);
-  tray.setToolTip("Patspect");
+  tray.setToolTip("Office Claude");
 
   updateTray();
   startDaemon();
