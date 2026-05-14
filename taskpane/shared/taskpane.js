@@ -270,7 +270,7 @@ $chipDetach.addEventListener("click", () => {
 // Settings — persisted to localStorage. New settings get added here and
 // applied via applySettings().
 // ---------------------------------------------------------------------------
-const SETTINGS_KEY = "cc-word-addin-settings-v1";
+const SETTINGS_KEY = "office-claude-settings-v1";
 
 function defaultSettings() {
   return {
@@ -555,9 +555,9 @@ async function runOfficeTool(msg) {
 // ---------------------------------------------------------------------------
 function headingLevel(style) {
   // Returns the heading level if the style name *contains* "Heading <N>".
-  // Patent firms commonly use custom styles like "M&G-Pat App-Heading 2" or
-  // "Firm-Patent-Heading-1" — we want to recognize those as headings too,
-  // not just Word's built-in "Heading 1" / "Heading 2".
+  // Many organizations use prefixed style names like "Acme-Heading 2" or
+  // "Firm-Heading-1" — we want to recognize those as headings too, not just
+  // Word's built-in "Heading 1" / "Heading 2".
   if (!style) return null;
   const m = /heading[\s_-]*(\d)/i.exec(style);
   return m ? parseInt(m[1], 10) : null;
@@ -586,7 +586,7 @@ function findHeadingIndex(snapshot, headingText) {
 // Infer the body-text style for a section. Walks forward from `fromIdx` for
 // the first non-heading paragraph and returns its style. Falls back to
 // walking backward. Used so that inserted paragraphs pick up the section's
-// body style (e.g. "HBH Body Text") rather than the previous paragraph's
+// body style (e.g. "Acme Body Text") rather than the previous paragraph's
 // style — which would be a heading and would cause new "body" paragraphs to
 // render as headings.
 function inferBodyStyle(snapshot, fromIdx) {
@@ -625,7 +625,7 @@ async function toolGetSelection() {
 
     // Try to load uniqueLocalId directly on the selected paragraphs — that
     // gives us stable IDs without any text-matching against the full doc
-    // (which is unsafe with repeated boilerplate in patent specs).
+    // (which is unsafe whenever the doc has repeated/boilerplate paragraphs).
     let idMode = "uniqueLocalId";
     try {
       selParas.load("items/text, items/style, items/uniqueLocalId");
@@ -641,7 +641,7 @@ async function toolGetSelection() {
 
     const selSnapshot = selParas.items.map(p => ({
       // When uniqueLocalId is unavailable, return null rather than guessing
-      // an index by text-matching — duplicate paragraphs in patent specs make
+      // an index by text-matching — duplicate paragraphs in any doc make
       // text-match unreliable. The agent should fall back to text references.
       id: idMode === "uniqueLocalId" ? p.uniqueLocalId : null,
       style: p.style,
@@ -681,10 +681,11 @@ async function toolReadParagraphs({ ids, heading_section, range }) {
       const [s, e] = range;
       picked = snapshot.slice(s, e);
     } else {
-      // Default: outline-ish view. Patent docs use varied heading conventions
-      // (built-in Heading N, custom style names, all-caps direct formatting),
-      // so we don't pre-filter — return every paragraph with its style and a
-      // truncated text preview. The agent picks out the headings.
+      // Default: outline-ish view. Word documents in the wild use varied
+      // heading conventions (built-in Heading N, custom style names, all-caps
+      // direct formatting), so we don't pre-filter — return every paragraph
+      // with its style and a truncated text preview. The agent picks out the
+      // headings.
       picked = snapshot;
       truncate = true;
     }
@@ -1574,7 +1575,7 @@ document.querySelectorAll(".tab").forEach(btn => {
 // Presets — saved prompts that the user can pin to quick-chips or browse
 // in the Library tab.
 // ===========================================================================
-const PRESETS_KEY = "cc-word-addin-presets-v1";
+const PRESETS_KEY = "office-claude-presets-v1";
 
 function defaultPresets() {
   return [
