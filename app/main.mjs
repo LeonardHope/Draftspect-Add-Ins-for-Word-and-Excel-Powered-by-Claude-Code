@@ -1,4 +1,4 @@
-// Office Claude — Electron menu bar shell.
+// Claude Code for Office — Electron menu bar shell.
 //
 // Wraps the daemon as a child process, exposes a tray icon with status and
 // controls, hides the dock icon (we're a background-only app), and restarts
@@ -16,8 +16,8 @@ import { isAddinInstalled, installAddin, uninstallAddin } from "./sideload.mjs";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..");
 const DAEMON_ENTRY = join(PROJECT_ROOT, "daemon", "index.mjs");
-const SESSIONS_FILE = join(homedir(), ".claude", "office-claude", "sessions.json");
-const LOG_FILE = join(homedir(), ".claude", "office-claude", "daemon.log");
+const SESSIONS_FILE = join(homedir(), ".claude", "office-addins", "sessions.json");
+const LOG_FILE = join(homedir(), ".claude", "office-addins", "daemon.log");
 
 // Don't launch the daemon with one of these as the initial cwd, even if a
 // stale sessions.json says so. Matches the set in daemon/workspace.mjs.
@@ -244,13 +244,13 @@ function buildMenu() {
       ? [{ label: "Uninstall add-in", click: () => runUninstall({ interactive: true }) }]
       : []),
     { type: "separator" },
-    { label: "Quit Office Claude", click: () => app.quit() },
+    { label: "Quit Claude Code for Office", click: () => app.quit() },
   ]);
 }
 
 function updateTray() {
   if (!tray) return;
-  tray.setToolTip(`Office Claude — ${statusLabel().replace(/^●\s*/, "")}`);
+  tray.setToolTip(`Claude Code for Office — ${statusLabel().replace(/^●\s*/, "")}`);
   tray.setContextMenu(buildMenu());
 }
 
@@ -274,11 +274,11 @@ async function runInstall({ interactive }) {
     if (interactive) {
       dialog.showMessageBox({
         type: "info",
-        title: "Office Claude installed",
+        title: "Claude Code for Office installed",
         message: "The add-in is now registered with Word and Excel.",
         detail:
           "Quit and reopen Word / Excel (if they're already running), then look for " +
-          "Office Claude under Insert → Office Add-ins → Shared Folder.\n\n" +
+          "Claude Code for Office under Insert → Office Add-ins → Shared Folder.\n\n" +
           (process.platform === "win32"
             ? `Trusted catalog registered at:\n${result.catalog}`
             : `Manifests copied to each app's wef/ folder.`),
@@ -312,8 +312,8 @@ async function runUninstall({ interactive }) {
       dialog.showMessageBox({
         type: "info",
         title: "Add-in uninstalled",
-        message: "Office Claude is no longer registered with Word or Excel.",
-        detail: "The daemon is still running. Quit Office Claude from the tray menu to stop it entirely.",
+        message: "Claude Code for Office is no longer registered with Word or Excel.",
+        detail: "The daemon is still running. Quit Claude Code for Office from the tray menu to stop it entirely.",
         buttons: ["OK"],
       }).catch(() => {});
     }
@@ -337,11 +337,11 @@ async function offerFirstRunInstall() {
   if (addinInstalled) return;
   const { response } = await dialog.showMessageBox({
     type: "question",
-    title: "Install Office Claude in Word + Excel?",
-    message: "Office Claude can install itself in Word and Excel automatically — no manifest copying or registry editing needed.",
+    title: "Install Claude Code for Office in Word + Excel?",
+    message: "Claude Code for Office can install itself in Word and Excel automatically — no manifest copying or registry editing needed.",
     detail:
       "Click Install to register the add-in now. You can install later from the tray menu " +
-      "if you'd prefer. After installing, open Word/Excel and find Office Claude under " +
+      "if you'd prefer. After installing, open Word/Excel and find Claude Code for Office under " +
       "Insert → Office Add-ins → Shared Folder.",
     buttons: ["Install", "Not now"],
     defaultId: 0,
@@ -371,7 +371,7 @@ app.whenReady().then(async () => {
   const icon = nativeImage.createFromPath(iconPath);
   if (process.platform === "darwin") icon.setTemplateImage(true);
   tray = new Tray(icon);
-  tray.setToolTip("Office Claude");
+  tray.setToolTip("Claude Code for Office");
 
   // Check whether the add-in is already registered and refresh the tray
   // menu, then offer to install on first run.

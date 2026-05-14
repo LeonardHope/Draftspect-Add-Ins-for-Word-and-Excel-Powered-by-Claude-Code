@@ -1,7 +1,7 @@
 {
-  "name": "office-claude-poc",
+  "name": "claude-code-office-addins",
   "version": "0.1.0",
-  "description": "Office (Word + Excel) add-ins that bring local Claude Code into Microsoft Office. Powered by Claude.",
+  "description": "Microsoft Office (Word + Excel) add-ins that bring your local Claude Code into Office.",
   "main": "app/main.mjs",
   "type": "module",
   "scripts": {

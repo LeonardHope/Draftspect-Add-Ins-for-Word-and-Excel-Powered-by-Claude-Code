@@ -4,7 +4,7 @@
 // we need the session_id string, which we record here per cwd along with a
 // last-used timestamp.
 //
-// Stored at ~/.claude/office-claude/sessions.json:
+// Stored at ~/.claude/office-addins/sessions.json:
 //
 //   {
 //     "version": 1,
@@ -22,7 +22,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, dirname, basename } from "node:path";
 
-const FILE = join(homedir(), ".claude", "office-claude", "sessions.json");
+const FILE = join(homedir(), ".claude", "office-addins", "sessions.json");
 
 // Immediate children of $HOME that are macOS system folders, never matters.
 // Used to silently drop stale entries and refuse new ones so we don't

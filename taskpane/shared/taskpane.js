@@ -117,7 +117,7 @@ function showAuthErrorBanner(rawError) {
           <li>Sign in to Claude Code in a terminal — run <code>claude</code> and follow the prompts.</li>
           <li>Or set <code>ANTHROPIC_API_KEY</code> in your shell and relaunch the app.</li>
         </ul>
-        After signing in, quit Office Claude (tray icon) and reopen it.
+        After signing in, quit Claude Code for Office (tray icon) and reopen it.
       </div>
       <details class="auth-error-raw">
         <summary>Raw error</summary>
@@ -236,7 +236,7 @@ $chipDetach.addEventListener("click", () => {
 // Settings — persisted to localStorage. New settings get added here and
 // applied via applySettings().
 // ---------------------------------------------------------------------------
-const SETTINGS_KEY = "office-claude-settings-v1";
+const SETTINGS_KEY = "claude-code-office-settings-v1";
 
 function defaultSettings() {
   return {
@@ -695,7 +695,7 @@ Office.onReady((info) => {
 // ---------------------------------------------------------------------------
 // First-run onboarding card
 // ---------------------------------------------------------------------------
-const ONBOARDING_KEY = "office-claude-onboarding-seen-v1";
+const ONBOARDING_KEY = "claude-code-office-onboarding-seen-v1";
 function maybeShowOnboarding() {
   try { if (localStorage.getItem(ONBOARDING_KEY)) return; } catch { /* ignore */ }
   const hostLabel = HOST === "excel" ? "Excel" : "Word";
@@ -703,7 +703,7 @@ function maybeShowOnboarding() {
   card.className = "onboarding-card";
   card.innerHTML = `
     <div class="onboarding-head">
-      <strong>Welcome to Office Claude</strong>
+      <strong>Welcome to Claude Code for ${hostLabel}</strong>
       <button type="button" class="onboarding-dismiss" title="Dismiss">×</button>
     </div>
     <div class="onboarding-body">
@@ -753,7 +753,7 @@ document.querySelectorAll(".tab").forEach(btn => {
 // Presets — saved prompts that the user can pin to quick-chips or browse
 // in the Library tab.
 // ===========================================================================
-const PRESETS_KEY = "office-claude-presets-v1";
+const PRESETS_KEY = "claude-code-office-presets-v1";
 
 function defaultPresets() {
   return [

@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { getContextEntries, setContextEntries } from "../daemon/context.mjs";
 
 async function makeTmpWs() {
-  const dir = await mkdtemp(join(tmpdir(), "office-claude-ctx-test-"));
+  const dir = await mkdtemp(join(tmpdir(), "cc-office-ctx-test-"));
   return dir;
 }
 
