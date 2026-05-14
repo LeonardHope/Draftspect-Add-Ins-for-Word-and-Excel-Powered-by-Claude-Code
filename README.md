@@ -2,7 +2,7 @@
 
 > _Working title; rename before public release._
 
-Microsoft Office add-ins (Word + Excel) that bring your **local Claude Code** — every skill, custom agent, MCP server, hook, and `CLAUDE.md` you already have — directly into Word and Excel. The agent reads and edits the active document through Office.js (flicker-free, in-process), reads any folders or files you've added as context using the same `Read`/`Glob`/`Grep`/`Bash` it uses in your terminal, and can reach every other MCP-connected app you've configured.
+Microsoft Office add-ins (Word + Excel) that bring your **local Claude Code** — every skill, custom agent, MCP server, hook, and `CLAUDE.md` you already have — directly into Word and Excel. The agent reads and edits the active document through Office.js, reads any folders or files you've added as context using the same `Read`/`Glob`/`Grep`/`Bash` it uses in your terminal, and can reach every other MCP-connected app you've configured.
 
 Each user runs the daemon on their own machine with their own Claude Code subscription (or API key). Nothing leaves your computer except API calls to Anthropic.
 
@@ -17,7 +17,6 @@ Forked + generalized from a private patent-drafting-specific build.
 ## What it does
 
 ### Word
-- **Flicker-free editing** through Office.js — no AppleScript/COM out-of-process automation.
 - **10 editing tools** the agent uses to act on the active document: get selection, read paragraphs, insert/replace paragraphs, surgical sub-paragraph replace, replace section, highlight, clear highlights, add comment, clear comments.
 - **Track-changes-aware** — user-configurable per workspace (always / modifications-only / never), respected by every write tool.
 - **Comments + highlights** with severity colors (`error`/`warning`/`info`/`uncertain` → red/yellow/turquoise/pink).

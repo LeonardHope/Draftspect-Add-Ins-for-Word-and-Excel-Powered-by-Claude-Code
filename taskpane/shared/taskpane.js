@@ -130,6 +130,48 @@ function setStatus(state, label) {
   $status.textContent = label;
 }
 
+// Map a tool name to a short, user-friendly status label shown in the topbar
+// while the agent is mid-turn. Falls back to a generic "Working…" for tools
+// the user hasn't seen named before — most filesystem/Bash/MCP tools.
+const TOOL_STATUS_LABELS = {
+  // Word
+  office_get_selection:      "Reading your selection…",
+  office_read_paragraphs:    "Reading the document…",
+  office_insert_paragraphs:  "Inserting paragraphs…",
+  office_replace_text:       "Editing text…",
+  office_replace_paragraphs: "Replacing paragraphs…",
+  office_replace_section:    "Rewriting section…",
+  office_highlight:          "Highlighting…",
+  office_clear_highlights:   "Clearing highlights…",
+  office_add_comment:        "Adding comment…",
+  office_clear_comments:     "Clearing comments…",
+  // Excel
+  excel_get_selected_range:  "Reading your selection…",
+  excel_list_sheets:         "Listing sheets…",
+  excel_read_range:          "Reading cells…",
+  excel_write_range:         "Writing cells…",
+  excel_find_value:          "Searching…",
+  excel_insert_rows:         "Inserting rows…",
+  excel_delete_rows:         "Deleting rows…",
+  // Common Claude Code tools
+  Read:                      "Reading a file…",
+  Write:                     "Writing a file…",
+  Edit:                      "Editing a file…",
+  MultiEdit:                 "Editing a file…",
+  Bash:                      "Running a command…",
+  Glob:                      "Searching files…",
+  Grep:                      "Searching files…",
+  WebFetch:                  "Fetching from the web…",
+  WebSearch:                 "Searching the web…",
+};
+function statusForTool(name) {
+  if (TOOL_STATUS_LABELS[name]) return TOOL_STATUS_LABELS[name];
+  // MCP tools surface as "mcp__<server>__<tool>" — show the server name.
+  const m = /^mcp__([^_]+)__/.exec(name || "");
+  if (m) return `Calling ${m[1]}…`;
+  return "Working…";
+}
+
 function appendUserMessage(text) {
   const el = document.createElement("div");
   el.className = "msg user";
@@ -318,6 +360,7 @@ async function handleServerMessage(msg) {
     case "assistant_event":
       if (msg.event === "tool_use_announce") {
         appendToolUse(msg.tool, msg.input);
+        setStatus("working", statusForTool(msg.tool));
       } else if (msg.event === "turn_complete") {
         if (wsReady) setStatus("ok", "Ready");
       } else if (msg.event === "error") {
