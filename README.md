@@ -252,7 +252,10 @@ The SDK prefers `ANTHROPIC_API_KEY` over keychain OAuth when present.
 │   └── system-prompt.md   Office-add-in-specific system prompt
 ├── taskpane/
 │   ├── shared/
-│   │   ├── taskpane.js    Host-aware task pane (Word + Excel branches)
+│   │   ├── taskpane.js    Entry point: WS, dispatcher, UI, composer, boot
+│   │   ├── tools-word.js  office_* tool implementations + Word helpers
+│   │   ├── tools-excel.js excel_* tool implementations + Excel helpers
+│   │   ├── paths.js       Pure path helpers (URL/Windows/POSIX normalization)
 │   │   └── styles.css
 │   ├── word/index.html
 │   ├── excel/index.html
