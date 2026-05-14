@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ["20.x", "22.x"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      # Syntax-check every JS/MJS file in the repo (excluding node_modules
+      # and the lockfile). Catches typos that the test suite wouldn't reach
+      # because Office.js code doesn't run under Node.
+      - name: node --check on every JS/MJS
+        run: |
+          set -e
+          find daemon app taskpane scripts tests \
+            -type f \( -name '*.mjs' -o -name '*.js' \) \
+            -not -path '*/node_modules/*' \
+            -print0 | xargs -0 -I{} node --check {}
+      - run: npm test
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: npm
+      - run: npm ci
+      # Fail on high-severity advisories so a future dep bump doesn't
+      # silently regress the Electron audit work that landed in #14.
+      - run: npm audit --audit-level=high
