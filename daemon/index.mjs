@@ -7,10 +7,10 @@ import { dirname, resolve, extname, join } from "node:path";
 import { homedir } from "node:os";
 import { createBridge } from "./bridge.mjs";
 import { createOfficeBridgeMcp } from "./office-tools.mjs";
-import { getDraftingSetup, setDraftingSetup, readDraftingSetupForPrompt, resolveMatterRoot, suggestMatterRoot, ensureMatterMarker } from "./references.mjs";
+import { resolveWorkspaceRoot, suggestWorkspaceRoot, ensureWorkspaceMarker } from "./workspace.mjs";
 import { randomUUID } from "node:crypto";
 import { getSessionForFolder, saveSessionForFolder, touchFolder, getRecentFolders, forgetFolder } from "./sessions.mjs";
-import { getMatterDisclosure, setMatterDisclosure } from "./disclosure.mjs";
+import { getContextEntries, setContextEntries } from "./context.mjs";
 import { stat } from "node:fs/promises";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -42,7 +42,7 @@ const matterFolder = process.argv[2]
     ? resolve(process.env.MATTER_FOLDER)
     : process.cwd();
 
-console.log(`[daemon] Matter folder (agent cwd): ${matterFolder}`);
+console.log(`[daemon] Workspace folder (agent cwd): ${matterFolder}`);
 
 // ---------------------------------------------------------------------------
 // HTTP server: serve the taskpane assets so Word can load them.
@@ -154,28 +154,6 @@ const bridge = createBridge({
   token: BRIDGE_TOKEN,
   allowedOrigins: [HTTP_ORIGIN],
   extraHandlers: {
-    get_drafting_setup: async (msg, reply) => {
-      const setup = await getDraftingSetup();
-      reply({ type: "get_drafting_setup_result", ok: true, setup, request_id: msg.request_id });
-    },
-    set_drafting_setup: async (msg, reply) => {
-      const { saved, errors } = await setDraftingSetup({
-        guidelines: msg.guidelines || [],
-        samples: msg.samples || [],
-      });
-      reply({
-        type: "set_drafting_setup_result",
-        ok: errors.length === 0,
-        saved,
-        errors,
-        request_id: msg.request_id,
-      });
-      // Restart so the new drafting-setup append is in the system prompt
-      // on the next turn.
-      restartCurrentSession({ reason: "drafting_setup_changed" }).catch(err =>
-        console.warn("[daemon] restart failed:", err.message)
-      );
-    },
     pick_path: async (msg, reply) => {
       try {
         const result = await pickPathFromMain({
@@ -194,8 +172,8 @@ const bridge = createBridge({
         let cwd;
         let explicitPick = false;
         if (msg.autodetect_from_doc) {
-          const detected = await resolveMatterRoot(msg.autodetect_from_doc);
-          if (!detected) throw new Error("Could not auto-detect a matter folder from that doc path");
+          const detected = await resolveWorkspaceRoot(msg.autodetect_from_doc);
+          if (!detected) throw new Error("Could not auto-detect a workspace folder from that doc path");
           cwd = detected;
         } else if (msg.cwd) {
           cwd = msg.cwd;
@@ -204,13 +182,11 @@ const bridge = createBridge({
           throw new Error("set_cwd requires `cwd` or `autodetect_from_doc`");
         }
         const resolved = await switchFolder(cwd);
-        // Drop a CLAUDE.md marker when the user explicitly picked this folder
-        // as the matter. Next time any doc in this matter is opened, the
-        // autodetect resolver finds it silently — no banner, no picker. Skips
-        // if a marker already exists (CLAUDE.md or .claude).
+        // Drop a CLAUDE.md marker on explicit user pick so the next open of
+        // any doc in this folder auto-detects silently.
         let markerCreated = false;
         if (explicitPick) {
-          try { markerCreated = await ensureMatterMarker(resolved); }
+          try { markerCreated = await ensureWorkspaceMarker(resolved); }
           catch (e) { console.warn(`[daemon] could not create CLAUDE.md in ${resolved}: ${e.message}`); }
         }
         reply({ type: "set_cwd_result", ok: true, cwd: resolved, marker_created: markerCreated, request_id: msg.request_id });
@@ -218,12 +194,12 @@ const bridge = createBridge({
         reply({ type: "set_cwd_result", ok: false, error: e.message, request_id: msg.request_id });
       }
     },
-    suggest_matter: async (msg, reply) => {
+    suggest_workspace: async (msg, reply) => {
       try {
-        const suggestion = await suggestMatterRoot(msg.doc_path || null);
-        reply({ type: "suggest_matter_result", ok: true, suggestion, request_id: msg.request_id });
+        const suggestion = await suggestWorkspaceRoot(msg.doc_path || null);
+        reply({ type: "suggest_workspace_result", ok: true, suggestion, request_id: msg.request_id });
       } catch (e) {
-        reply({ type: "suggest_matter_result", ok: false, error: e.message, request_id: msg.request_id });
+        reply({ type: "suggest_workspace_result", ok: false, error: e.message, request_id: msg.request_id });
       }
     },
     get_cwd_state: async (msg, reply) => {
@@ -244,35 +220,35 @@ const bridge = createBridge({
         reply({ type: "forget_folder_result", ok: false, error: e.message, request_id: msg.request_id });
       }
     },
-    get_matter_disclosure: async (msg, reply) => {
+    get_context: async (msg, reply) => {
       try {
         const cwd = getCurrentCwd();
-        const entries = cwd ? await getMatterDisclosure(cwd) : [];
-        reply({ type: "get_matter_disclosure_result", ok: true, cwd, entries, request_id: msg.request_id });
+        const entries = cwd ? await getContextEntries(cwd) : [];
+        reply({ type: "get_context_result", ok: true, cwd, entries, request_id: msg.request_id });
       } catch (e) {
-        reply({ type: "get_matter_disclosure_result", ok: false, error: e.message, request_id: msg.request_id });
+        reply({ type: "get_context_result", ok: false, error: e.message, request_id: msg.request_id });
       }
     },
-    set_matter_disclosure: async (msg, reply) => {
+    set_context: async (msg, reply) => {
       try {
         const cwd = getCurrentCwd();
-        if (!cwd) throw new Error("No matter selected");
-        const { saved, errors } = await setMatterDisclosure(cwd, msg.entries || []);
+        if (!cwd) throw new Error("No workspace selected");
+        const { saved, errors } = await setContextEntries(cwd, msg.entries || []);
         reply({
-          type: "set_matter_disclosure_result",
+          type: "set_context_result",
           ok: errors.length === 0,
           cwd,
           saved,
           errors,
           request_id: msg.request_id,
         });
-        // Restart so the agent re-reads this matter's CLAUDE.md and picks up
-        // the updated disclosure block on the next turn.
-        restartCurrentSession({ reason: "disclosure_changed" }).catch(err =>
+        // Restart so the agent re-reads this workspace's CLAUDE.md and picks
+        // up the updated context block on the next turn.
+        restartCurrentSession({ reason: "context_changed" }).catch(err =>
           console.warn("[daemon] restart failed:", err.message)
         );
       } catch (e) {
-        reply({ type: "set_matter_disclosure_result", ok: false, error: e.message, request_id: msg.request_id });
+        reply({ type: "set_context_result", ok: false, error: e.message, request_id: msg.request_id });
       }
     },
   },
@@ -348,23 +324,12 @@ async function preflightHttpMcpServers(servers) {
 await preflightHttpMcpServers(userMcpServers);
 
 // ---------------------------------------------------------------------------
-// System prompt: Claude Code default + Word-specific append.
+// System prompt: Claude Code default + Office-specific append.
 // ---------------------------------------------------------------------------
-// Re-read system-prompt.md AND the drafting-setup append fresh on every
-// session start so edits to either take effect immediately when we restart a
-// session (no daemon restart required).
+// Re-read system-prompt.md fresh on every session start so edits take effect
+// immediately when a session restarts (no daemon restart required).
 async function buildSystemPromptAppend() {
-  const wordAppend = await readFile(join(__dirname, "system-prompt.md"), "utf8");
-  const draftingSetup = await readDraftingSetupForPrompt();
-  return draftingSetup
-    ? wordAppend + "\n\n" + draftingSetup
-    : wordAppend;
-}
-
-// Log the initial size so users see the setup is loaded at startup.
-{
-  const initial = await readDraftingSetupForPrompt();
-  if (initial) console.log(`[daemon] Loaded drafting setup (${initial.length} chars) into system prompt`);
+  return await readFile(join(__dirname, "system-prompt.md"), "utf8");
 }
 
 // ---------------------------------------------------------------------------
@@ -386,12 +351,12 @@ async function buildSystemPromptAppend() {
 function customPermissionHandler(toolName, input) {
   if (toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit") {
     const path = input?.file_path ?? input?.path;
-    if (typeof path === "string" && /\.docx?$/i.test(path)) {
+    if (typeof path === "string" && /\.(docx?|xlsx?|docm|xlsm)$/i.test(path)) {
       return Promise.resolve({
         behavior: "deny",
         message:
-          "Refusing to write to .docx via filesystem tools. They are managed by Word and may have unsaved changes. " +
-          "Use office_* tools to edit the active Word document. Do not attempt to modify .docx files on disk.",
+          "Refusing to write to a Word/Excel file via filesystem tools. These files are managed by Office and may have unsaved changes. " +
+          "Use the host's editing tools (office_* for Word, excel_* for Excel) to modify the active document.",
       });
     }
   }
