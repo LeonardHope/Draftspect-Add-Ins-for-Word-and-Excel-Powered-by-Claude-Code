@@ -19,6 +19,18 @@
     <AppDomain>http://127.0.0.1:47824</AppDomain>
   </AppDomains>
 
+  <!--
+    Minimum Word API version. Required for changeTrackingMode, comments,
+    insertComment, getComments — the floor of what every write-tool path
+    needs. uniqueLocalId (WordApi 1.6) is used opportunistically with an
+    index-based fallback in taskpane.js, so we do NOT require 1.6 here.
+  -->
+  <Requirements>
+    <Sets DefaultMinVersion="1.4">
+      <Set Name="WordApi" MinVersion="1.4" />
+    </Sets>
+  </Requirements>
+
   <Hosts>
     <Host Name="Document" />
   </Hosts>
