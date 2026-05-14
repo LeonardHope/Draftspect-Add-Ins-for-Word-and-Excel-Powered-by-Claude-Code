@@ -68,31 +68,26 @@ npm run dev
 
 ---
 
-## Sideload the add-in
+## Install the add-in in Word + Excel
 
-### macOS
+**The Electron app installs itself.** On first launch, you'll see:
 
-1. Drop `manifests/word.xml` into `~/Library/Containers/com.microsoft.Word/Data/Documents/wef/`
-2. Drop `manifests/excel.xml` into `~/Library/Containers/com.microsoft.Excel/Data/Documents/wef/`
-3. Quit and reopen Word / Excel
-4. Insert → Office Add-ins → Shared Folder → "Office Claude (Word)" / "Office Claude (Excel)" → Add
+> *Install Office Claude in Word + Excel?* — Click **Install**.
 
-If the `wef/` folder doesn't exist, create it:
+After that the add-in is registered with both apps. Open Word or Excel, then **Insert → Office Add-ins → Shared Folder**, and pick *Office Claude (Word)* or *Office Claude (Excel)*. Reinstall or uninstall any time from the tray menu.
 
-```bash
-mkdir -p ~/Library/Containers/com.microsoft.Word/Data/Documents/wef
-mkdir -p ~/Library/Containers/com.microsoft.Excel/Data/Documents/wef
-```
+Behind the scenes:
+- **macOS** — drops `manifests/{word,excel}.xml` into the per-host `wef/` folder inside Office's container sandbox. Word and Excel scan that folder at launch.
+- **Windows** — copies the manifests to `%APPDATA%\Office Claude\manifests\` and registers that folder as a Trusted Catalog in the Office Trust Center via `HKCU\Software\Microsoft\Office\16.0\WEF\TrustedCatalogs\`. No admin rights needed.
 
-### Windows
+### If the auto-install didn't work
 
-1. Create a shared folder, e.g. `C:\OfficeAddins\`, and copy both manifest files there.
-2. Open File Explorer → right-click the folder → Properties → Sharing → Share. Note the network path (e.g. `\\YOUR-PC\OfficeAddins\`).
-3. In Word / Excel: File → Options → Trust Center → Trust Center Settings → Trusted Add-in Catalogs → enter the share URL → check **Show in Menu** → OK.
-4. Restart Word / Excel.
-5. Insert → My Add-ins → SHARED FOLDER → "Office Claude (Word)" / "Office Claude (Excel)" → Add.
+Quickest manual fallback (works the same on macOS and Windows): in Word or Excel, **Insert → My Add-ins → Manage My Add-ins → Upload My Add-in** and point at the appropriate file in `manifests/`. Repeat once per app.
 
-Detailed Microsoft instructions: [Sideload an Office Add-in on Windows](https://learn.microsoft.com/en-us/office/dev/add-ins/testing/create-a-network-shared-folder-catalog-for-task-pane-and-content-add-ins).
+If that menu item isn't visible on your build of Office, fall back to the legacy procedure:
+
+- **macOS:** copy `manifests/word.xml` to `~/Library/Containers/com.microsoft.Word/Data/Documents/wef/` (create the folder if missing). Same for Excel.
+- **Windows:** put both manifests in a folder (e.g. `C:\OfficeAddins\`), then File → Options → Trust Center → Trust Center Settings → Trusted Add-in Catalogs → add the path → check **Show in Menu** → restart Office. Microsoft's full guide: [Sideload an Office Add-in on Windows](https://learn.microsoft.com/en-us/office/dev/add-ins/testing/create-a-network-shared-folder-catalog-for-task-pane-and-content-add-ins).
 
 ---
 

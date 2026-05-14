@@ -130,6 +130,43 @@ function setStatus(state, label) {
   $status.textContent = label;
 }
 
+// Auth-failure banner. Shown across the top of the panel when the daemon
+// emits event: "auth_error". Persists until the user dismisses it; recovery
+// is to sign in to Claude Code (or set ANTHROPIC_API_KEY) and relaunch the
+// app, neither of which we can do from inside the taskpane.
+function showAuthErrorBanner(rawError) {
+  let banner = document.getElementById("auth-error-banner");
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "auth-error-banner";
+    banner.className = "auth-error-banner";
+    banner.innerHTML = `
+      <div class="auth-error-head">
+        <strong>Sign-in required</strong>
+        <button type="button" class="auth-error-dismiss" title="Dismiss">×</button>
+      </div>
+      <div class="auth-error-body">
+        The agent couldn't authenticate with Anthropic. Either:
+        <ul>
+          <li>Sign in to Claude Code in a terminal — run <code>claude</code> and follow the prompts.</li>
+          <li>Or set <code>ANTHROPIC_API_KEY</code> in your shell and relaunch the app.</li>
+        </ul>
+        After signing in, quit Office Claude (tray icon) and reopen it.
+      </div>
+      <details class="auth-error-raw">
+        <summary>Raw error</summary>
+        <pre></pre>
+      </details>
+    `;
+    document.body.insertBefore(banner, document.body.firstChild);
+    banner.querySelector(".auth-error-dismiss").addEventListener("click", () => {
+      banner.hidden = true;
+    });
+  }
+  banner.querySelector(".auth-error-raw pre").textContent = String(rawError || "(no detail)");
+  banner.hidden = false;
+}
+
 // Map a tool name to a short, user-friendly status label shown in the topbar
 // while the agent is mid-turn. Falls back to a generic "Working…" for tools
 // the user hasn't seen named before — most filesystem/Bash/MCP tools.
@@ -366,6 +403,9 @@ async function handleServerMessage(msg) {
       } else if (msg.event === "error") {
         appendEvent(`Error: ${msg.error}`);
         if (wsReady) setStatus("ok", "Ready");
+      } else if (msg.event === "auth_error") {
+        showAuthErrorBanner(msg.error);
+        if (wsReady) setStatus("err", "Sign-in required");
       } else if (msg.event === "session_init") {
         appendEvent(`Session ${msg.session_id?.slice(0, 8)}… (${msg.model})`);
       } else if (msg.event === "cwd_changed") {
@@ -1464,10 +1504,50 @@ Office.onReady((info) => {
   // Initialize presets UI.
   initPresets();
 
+  // Show the welcome card on first launch (per browser-storage, so it
+  // re-shows in a fresh profile or if the user clears storage).
+  maybeShowOnboarding();
+
   // Fetch the bridge token before opening the WS — the bridge will close any
   // connection that doesn't present it.
   fetchBridgeToken().then(() => wsConnect());
 });
+
+// ---------------------------------------------------------------------------
+// First-run onboarding card
+// ---------------------------------------------------------------------------
+const ONBOARDING_KEY = "office-claude-onboarding-seen-v1";
+function maybeShowOnboarding() {
+  try { if (localStorage.getItem(ONBOARDING_KEY)) return; } catch { /* ignore */ }
+  const hostLabel = HOST === "excel" ? "Excel" : "Word";
+  const card = document.createElement("div");
+  card.className = "onboarding-card";
+  card.innerHTML = `
+    <div class="onboarding-head">
+      <strong>Welcome to Office Claude</strong>
+      <button type="button" class="onboarding-dismiss" title="Dismiss">×</button>
+    </div>
+    <div class="onboarding-body">
+      <p>The agent reads and edits this ${hostLabel} document, plus any folders or files you add as context.</p>
+      <ol>
+        <li><strong>Pick a workspace folder</strong> in the <a href="#" data-onboarding-jump="setup">Setup tab</a> — that's the folder Claude treats as its working directory.</li>
+        <li><strong>Try a preset</strong> — the chips above the chat input are one-click prompts. "Summarize this document" is a good first try.</li>
+        <li><strong>Add context files</strong> in Setup if you want Claude to consider background material (notes, prior drafts, references).</li>
+      </ol>
+    </div>
+  `;
+  const messagesEl = document.getElementById("messages");
+  if (messagesEl) messagesEl.insertBefore(card, messagesEl.firstChild);
+  else document.body.insertBefore(card, document.body.firstChild);
+  card.querySelector(".onboarding-dismiss").addEventListener("click", () => {
+    try { localStorage.setItem(ONBOARDING_KEY, "1"); } catch { /* ignore */ }
+    card.remove();
+  });
+  card.querySelector("[data-onboarding-jump='setup']").addEventListener("click", (e) => {
+    e.preventDefault();
+    setActiveTab("setup");
+  });
+}
 
 // ===========================================================================
 // Tabs

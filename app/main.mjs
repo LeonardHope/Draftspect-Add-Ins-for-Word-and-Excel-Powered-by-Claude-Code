@@ -11,6 +11,7 @@ import fs from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isAddinInstalled, installAddin, uninstallAddin } from "./sideload.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..");
@@ -235,6 +236,14 @@ function buildMenu() {
     { label: "Open Microsoft Word", click: () => shell.openExternal("ms-word:") },
     { label: "Open Microsoft Excel", click: () => shell.openExternal("ms-excel:") },
     { type: "separator" },
+    {
+      label: addinInstalled ? "Reinstall add-in in Word + Excel" : "Install add-in in Word + Excel…",
+      click: () => runInstall({ interactive: true }),
+    },
+    ...(addinInstalled
+      ? [{ label: "Uninstall add-in", click: () => runUninstall({ interactive: true }) }]
+      : []),
+    { type: "separator" },
     { label: "Quit Office Claude", click: () => app.quit() },
   ]);
 }
@@ -246,9 +255,105 @@ function updateTray() {
 }
 
 // --------------------------------------------------------------------------
+// Add-in sideload — install / uninstall the Word + Excel manifests so the
+// user never has to manually drop files into wef/ or touch Trust Center.
+// --------------------------------------------------------------------------
+let addinInstalled = false;
+
+async function refreshAddinInstalled() {
+  try { addinInstalled = await isAddinInstalled(); }
+  catch { addinInstalled = false; }
+  updateTray();
+}
+
+async function runInstall({ interactive }) {
+  try {
+    const result = await installAddin();
+    addinInstalled = true;
+    updateTray();
+    if (interactive) {
+      dialog.showMessageBox({
+        type: "info",
+        title: "Office Claude installed",
+        message: "The add-in is now registered with Word and Excel.",
+        detail:
+          "Quit and reopen Word / Excel (if they're already running), then look for " +
+          "Office Claude under Insert → Office Add-ins → Shared Folder.\n\n" +
+          (process.platform === "win32"
+            ? `Trusted catalog registered at:\n${result.catalog}`
+            : `Manifests copied to each app's wef/ folder.`),
+        buttons: ["OK"],
+      }).catch(() => {});
+    }
+    return result;
+  } catch (err) {
+    logStream?.write(`[app] install failed: ${err.message}\n`);
+    if (interactive) {
+      dialog.showMessageBox({
+        type: "error",
+        title: "Couldn't install the add-in",
+        message: err.message,
+        detail:
+          "You can sideload manually instead — see the README's Sideload section. " +
+          "The shortest path: in Word/Excel, Insert → My Add-ins → Upload My Add-in → " +
+          `pick the appropriate file from ${join(PROJECT_ROOT, "manifests")}.`,
+        buttons: ["OK"],
+      }).catch(() => {});
+    }
+  }
+}
+
+async function runUninstall({ interactive }) {
+  try {
+    await uninstallAddin();
+    addinInstalled = false;
+    updateTray();
+    if (interactive) {
+      dialog.showMessageBox({
+        type: "info",
+        title: "Add-in uninstalled",
+        message: "Office Claude is no longer registered with Word or Excel.",
+        detail: "The daemon is still running. Quit Office Claude from the tray menu to stop it entirely.",
+        buttons: ["OK"],
+      }).catch(() => {});
+    }
+  } catch (err) {
+    logStream?.write(`[app] uninstall failed: ${err.message}\n`);
+    if (interactive) {
+      dialog.showMessageBox({
+        type: "error",
+        title: "Couldn't uninstall the add-in",
+        message: err.message,
+        buttons: ["OK"],
+      }).catch(() => {});
+    }
+  }
+}
+
+// First-run prompt — invoked once at app start if the add-in isn't already
+// registered. Skipped silently on unsupported platforms (Linux, etc.).
+async function offerFirstRunInstall() {
+  if (process.platform !== "darwin" && process.platform !== "win32") return;
+  if (addinInstalled) return;
+  const { response } = await dialog.showMessageBox({
+    type: "question",
+    title: "Install Office Claude in Word + Excel?",
+    message: "Office Claude can install itself in Word and Excel automatically — no manifest copying or registry editing needed.",
+    detail:
+      "Click Install to register the add-in now. You can install later from the tray menu " +
+      "if you'd prefer. After installing, open Word/Excel and find Office Claude under " +
+      "Insert → Office Add-ins → Shared Folder.",
+    buttons: ["Install", "Not now"],
+    defaultId: 0,
+    cancelId: 1,
+  }).catch(() => ({ response: 1 }));
+  if (response === 0) await runInstall({ interactive: true });
+}
+
+// --------------------------------------------------------------------------
 // App lifecycle
 // --------------------------------------------------------------------------
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Background-only app — no dock icon on macOS.
   if (process.platform === "darwin") app.dock?.hide();
 
@@ -268,8 +373,12 @@ app.whenReady().then(() => {
   tray = new Tray(icon);
   tray.setToolTip("Office Claude");
 
+  // Check whether the add-in is already registered and refresh the tray
+  // menu, then offer to install on first run.
+  await refreshAddinInstalled();
   updateTray();
   startDaemon();
+  offerFirstRunInstall().catch(err => logStream?.write(`[app] first-run prompt failed: ${err.message}\n`));
 });
 
 // Don't quit on "all windows closed" — we have no windows; tray is the UI.

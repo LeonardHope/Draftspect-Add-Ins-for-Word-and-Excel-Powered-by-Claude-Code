@@ -524,7 +524,18 @@ async function startSessionForFolder(cwd, resumeSessionId = null) {
         // Expected when switching sessions; not an error.
       } else if (currentSession === session) {
         console.error("[daemon] Agent loop crashed:", err);
-        bridge.sendAssistantEvent({ event: "error", error: err.message });
+        // Detect auth failures and surface them as a distinct event so the
+        // taskpane can show a recoverable banner ("sign in to Claude Code")
+        // instead of just dumping the SDK's raw error. Matched generously:
+        // SDK error messages have varied across versions.
+        const msgText = String(err?.message ?? err);
+        const isAuth = /\b(authentication|unauthorized|credential|api[- ]?key|sign[- ]?in|401)\b/i.test(msgText)
+          || /OAUTH/i.test(msgText);
+        if (isAuth) {
+          bridge.sendAssistantEvent({ event: "auth_error", error: msgText });
+        } else {
+          bridge.sendAssistantEvent({ event: "error", error: msgText });
+        }
       }
     } finally {
       session.settled = true;

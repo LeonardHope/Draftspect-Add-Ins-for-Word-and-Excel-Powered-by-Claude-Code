@@ -81,6 +81,71 @@ html[data-theme="light"] {
 }
 
 /* ===========================================================================
+   Auth-error banner — injected at runtime when the daemon reports an
+   authentication failure (no Claude Code OAuth + no ANTHROPIC_API_KEY,
+   expired credential, etc.). Persists at the top of the panel until the
+   user dismisses it. Recovery is out-of-band (sign in via terminal +
+   relaunch app), so we explain in the body rather than offer an action
+   button.
+   =========================================================================== */
+.auth-error-banner {
+  background: #fff4e5;
+  border-bottom: 1px solid #f2c98a;
+  color: #5e3a00;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.auth-error-banner[hidden] { display: none; }
+@media (prefers-color-scheme: dark) {
+  .auth-error-banner {
+    background: #3a2e15;
+    border-bottom-color: #6e5a30;
+    color: #f1d9a0;
+  }
+}
+.auth-error-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.auth-error-dismiss {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  color: inherit;
+  padding: 0 4px;
+}
+.auth-error-dismiss:hover { opacity: 0.7; }
+.auth-error-body { margin-bottom: 6px; }
+.auth-error-body ul { margin: 4px 0 4px 20px; padding: 0; }
+.auth-error-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.08);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.auth-error-raw {
+  font-size: 11px;
+  margin-top: 4px;
+}
+.auth-error-raw summary { cursor: pointer; opacity: 0.7; }
+.auth-error-raw pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 4px 0 0;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 6px;
+  border-radius: 4px;
+}
+
+/* ===========================================================================
    Layout
    =========================================================================== */
 * { box-sizing: border-box; }
