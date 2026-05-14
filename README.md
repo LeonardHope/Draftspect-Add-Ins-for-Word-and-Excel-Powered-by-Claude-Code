@@ -5,8 +5,6 @@
 
 Open Word or Excel, click a button, and chat with **your own** Claude Code — the same agent, with the same skills, MCP servers, and custom instructions you already use in the terminal — but now it can also read your document, edit your cells, and leave comments on your paragraphs. Everything runs on your computer; only API calls go to Anthropic.
 
-> Not a packaged product — just a public repo of integration code. Each user clones it and runs it on their own machine with their own Claude Code.
-
 ---
 
 ## Status
