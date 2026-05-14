@@ -3,7 +3,11 @@
 [![CI](https://github.com/LeonardHope/Claude-Code-Add-Ins-For-Word-and-Excel/actions/workflows/ci.yml/badge.svg)](https://github.com/LeonardHope/Claude-Code-Add-Ins-For-Word-and-Excel/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Open Word or Excel, click a button, and chat with **your own** Claude Code — the same agent, with the same skills, MCP servers, and custom instructions you already use in the terminal — but now it can also read your document, edit your cells, and leave comments on your paragraphs. Everything runs on your computer; only API calls go to Anthropic.
+Open Word or Excel, click a button, and chat with **your own** Claude Code — the same agent, with the same skills, MCP servers, and custom instructions you already use in the terminal — but now it can also read your document, edit your cells, and leave comments on your paragraphs.
+
+The headline feature: **point Claude at any folders or files on your machine** — your notes, prior drafts, reference exports, a vendor's specs, last quarter's deck — and they become context for whatever you're writing in Word or Excel. The agent reads them on demand, the same way it would in the terminal.
+
+Everything runs on your computer; only API calls go to Anthropic.
 
 ---
 
@@ -24,7 +28,13 @@ Open your document, click the add-in, and try things like:
 - _"Improve the writing in the selection. Use track changes."_
 - _"Find every cell in column C that contains an email and copy it to column E."_
 - _"Review the Background section. Highlight anything weak in yellow and leave a comment explaining why."_
+
+The really useful asks are the ones that bring **context files** into play — folders or files you've added in the Setup tab become background material the agent can read on demand:
+
 - _"Compare this draft against my notes folder and tell me what's missing."_
+- _"Rewrite the Methodology section using the terminology from `~/Research/glossary.md`."_
+- _"Cross-check every figure number in this paper against the data in `~/Project/results/`."_
+- _"Pull the financial assumptions from last quarter's deck into a new sheet here."_
 
 Because it's your local Claude Code, anything you've configured — custom agents, MCP servers, your `CLAUDE.md` files, hooks — still applies.
 
@@ -101,7 +111,7 @@ The task pane and daemon both live on `localhost`. Nothing on your network can t
 3. In the **Setup** tab, pick a **workspace folder**.
    - The agent's `cwd`. Determines which `CLAUDE.md`, context files, and saved conversation history apply.
    - Auto-detected via marker (`CLAUDE.md` or `.claude`) or proposed via a heuristic banner. On explicit pick, an empty `CLAUDE.md` is dropped so next time is silent.
-4. _(Optional)_ Add **context files** — folders or specific files Claude should consider as background. Saved into the workspace's `CLAUDE.md`.
+4. **Add context files.** This is the part that makes the add-in actually useful. In the Setup tab → Context files, click _Add folder or file_ and point at anything you'd want Claude to know about while it's working in this document — notes, prior drafts, source exports, a vendor's spec, a glossary. Each entry can have a one-line description so Claude knows when to consult it. Entries are saved into the workspace's `CLAUDE.md`, so the agent reads them on demand via standard `Read` / `Glob` / `Grep`.
 5. Chat in the **Chat** tab. Pinned presets (chips above the input) are one-click prompts.
 
 ### Default presets
