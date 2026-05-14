@@ -1,4 +1,4 @@
-// Auto-sideload the Office Claude manifests into Word and Excel.
+// Auto-sideload the Claude Code add-in manifests into Word and Excel.
 //
 // macOS: drop manifests into the per-host wef/ folder inside the Office
 // app's container. Word/Excel scan that folder on launch and surface
@@ -11,7 +11,7 @@
 // that folder as a Trusted Catalog in the Office Trust Center via the
 // registry. Office scans trusted-catalog folders for manifests.
 //
-//   %APPDATA%\Office Claude\manifests\{word,excel}.xml
+//   %APPDATA%\Claude Code for Office\manifests\{word,excel}.xml
 //   HKCU\Software\Microsoft\Office\16.0\WEF\TrustedCatalogs\<our-guid>
 //
 // All operations are idempotent: re-running install is safe, uninstall
@@ -83,11 +83,11 @@ function macIsInstalled() {
 // Catalog id is arbitrary — it's the registry key name under TrustedCatalogs.
 // Using a stable string (not a fresh UUID per install) so a second install
 // updates the entry in place rather than piling up duplicates.
-const WIN_CATALOG_ID = "office-claude-trusted-catalog";
+const WIN_CATALOG_ID = "claude-code-office-trusted-catalog";
 const WIN_CATALOG_KEY = `HKCU\\Software\\Microsoft\\Office\\16.0\\WEF\\TrustedCatalogs\\${WIN_CATALOG_ID}`;
 
 function winCatalogDir() {
-  return join(homedir(), "AppData", "Roaming", "Office Claude", "manifests");
+  return join(homedir(), "AppData", "Roaming", "Claude Code for Office", "manifests");
 }
 
 function regCommand(args) {
@@ -131,7 +131,7 @@ async function winInstall() {
   }
   await regAddString(WIN_CATALOG_KEY, "Id",           WIN_CATALOG_ID);
   await regAddString(WIN_CATALOG_KEY, "Url",          catalogDir);
-  await regAddString(WIN_CATALOG_KEY, "FriendlyName", "Office Claude");
+  await regAddString(WIN_CATALOG_KEY, "FriendlyName", "Claude Code for Office");
   // Flags=1 means "Show in menu" — equivalent to the checkbox in the Trust
   // Center UI; without this the catalog is registered but invisible.
   await regAddDword (WIN_CATALOG_KEY, "Flags",        1);

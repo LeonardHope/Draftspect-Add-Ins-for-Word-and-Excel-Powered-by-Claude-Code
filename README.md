@@ -1,11 +1,11 @@
-# Office Claude
+# Claude Code Add-Ins for Word and Excel
 
 [![CI](https://github.com/LeonardHope/Claude-Code-Add-Ins-For-Word-and-Excel/actions/workflows/ci.yml/badge.svg)](https://github.com/LeonardHope/Claude-Code-Add-Ins-For-Word-and-Excel/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> **Working title.** "Office Claude" is a placeholder; the product name will change before any public release.
-
 Open Word or Excel, click a button, and chat with **your own** Claude Code — the same agent, with the same skills, MCP servers, and custom instructions you already use in the terminal — but now it can also read your document, edit your cells, and leave comments on your paragraphs. Everything runs on your computer; only API calls go to Anthropic.
+
+> Not a packaged product — just a public repo of integration code. Each user clones it and runs it on their own machine with their own Claude Code.
 
 ---
 
@@ -51,15 +51,15 @@ If you don't have Claude Code yet, [install it](https://docs.claude.com/en/docs/
 ## Install
 
 ```bash
-git clone https://github.com/LeonardHope/Claude-Code-Add-Ins-For-Word-and-Excel.git "Office Claude"
-cd "Office Claude"
+git clone https://github.com/LeonardHope/Claude-Code-Add-Ins-For-Word-and-Excel.git
+cd Claude-Code-Add-Ins-For-Word-and-Excel
 npm install
 npm start
 ```
 
 That's it. A tray icon (menu bar on macOS, system tray on Windows) appears. The first launch offers to **install the add-in into Word and Excel for you** — click _Install_ and you're done.
 
-Open Word or Excel, go to **Insert → Office Add-ins → Shared Folder**, and pick _Office Claude (Word)_ or _Office Claude (Excel)_.
+Open Word or Excel, go to **Insert → Office Add-ins → Shared Folder**, and pick _Claude Code for Word_ or _Claude Code for Excel_.
 
 > **Daemon-only debugging.** If something's wrong and you want to see daemon output in the terminal, run `npm run dev` instead of `npm start`. Skips the Electron shell.
 
@@ -98,7 +98,7 @@ The task pane and daemon both live on `localhost`. Nothing on your network can t
 
 ## Using the add-in
 
-1. **Launch Office Claude (the tray app) first.** Word/Excel won't connect until the daemon is up.
+1. **Launch the tray app first.** Word/Excel won't connect until the daemon is up.
 2. Open a document or workbook. Open the add-in panel from **Insert → My Add-ins**.
 3. In the **Setup** tab, pick a **workspace folder**.
    - The agent's `cwd`. Determines which `CLAUDE.md`, context files, and saved conversation history apply.
@@ -172,7 +172,7 @@ Seven tools, A1 notation, 2D values arrays:
 <details>
 <summary><strong>Task pane shows "Disconnected — retrying…"</strong></summary>
 
-The daemon isn't running, or crashed. Open the tray menu → **Open logs** (`~/.claude/office-claude/daemon.log`). If the log ends mid-startup, the daemon will auto-restart up to 3 times before giving up.
+The daemon isn't running, or crashed. Open the tray menu → **Open logs** (`~/.claude/office-addins/daemon.log`). If the log ends mid-startup, the daemon will auto-restart up to 3 times before giving up.
 </details>
 
 <details>
@@ -182,7 +182,7 @@ The Agent SDK couldn't authenticate. Either:
 - Sign in to Claude Code: `claude` in a terminal, follow the prompt.
 - Or set `ANTHROPIC_API_KEY` in your shell and **relaunch** the tray app (the daemon reads env at boot).
 
-After signing in, quit Office Claude from the tray and reopen it.
+After signing in, quit the tray app and reopen it.
 </details>
 
 <details>

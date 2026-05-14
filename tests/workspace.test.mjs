@@ -18,7 +18,7 @@ import {
 } from "../daemon/workspace.mjs";
 
 async function makeTmp() {
-  return await mkdtemp(join(tmpdir(), "office-claude-ws-test-"));
+  return await mkdtemp(join(tmpdir(), "cc-office-ws-test-"));
 }
 
 test("resolveWorkspaceRoot returns null when no marker anywhere up the tree", async () => {

@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 async function withFakeHome(fn) {
-  const fakeHome = await mkdtemp(join(tmpdir(), "office-claude-sess-test-"));
+  const fakeHome = await mkdtemp(join(tmpdir(), "cc-office-sess-test-"));
   const prevHome = process.env.HOME;
   const prevUserProfile = process.env.USERPROFILE;
   process.env.HOME = fakeHome;

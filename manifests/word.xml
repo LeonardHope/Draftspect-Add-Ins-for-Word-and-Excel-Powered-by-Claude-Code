@@ -9,8 +9,8 @@
   <Version>0.1.0.0</Version>
   <ProviderName>Local Dev</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Office Claude (Word)" />
-  <Description DefaultValue="Bring local Claude Code into Word. Powered by Claude." />
+  <DisplayName DefaultValue="Claude Code for Word" />
+  <Description DefaultValue="Bring your local Claude Code into Word. Read and edit the active document; pull in context files from your workspace." />
   <IconUrl DefaultValue="http://127.0.0.1:47824/icon-32.png" />
   <HighResolutionIconUrl DefaultValue="http://127.0.0.1:47824/icon-80.png" />
   <SupportUrl DefaultValue="http://127.0.0.1:47824/" />
