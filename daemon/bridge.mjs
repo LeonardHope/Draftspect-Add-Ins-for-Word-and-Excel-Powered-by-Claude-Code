@@ -133,8 +133,23 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
           ws.close(4002, "Invalid token");
           return;
         }
+        // Close the prior active pane (if any) before promoting this ws —
+        // otherwise an old Word/Excel taskpane keeps feeding user_message /
+        // context_update frames after a new pane connects from a different
+        // document, racing with the legitimate session.
+        if (activeWs && activeWs !== ws && activeWs.readyState === activeWs.OPEN) {
+          console.log("[bridge] New pane authed; closing prior pane");
+          try { activeWs.close(4003, "Replaced by new pane"); } catch {}
+        }
         authed = true;
         activeWs = ws;
+      } else if (ws !== activeWs) {
+        // Should not happen — once a ws is authed and superseded, the old
+        // socket gets closed above. But if a stale message lands in flight
+        // between authing and the close handler, drop it rather than letting
+        // it overwrite activeContext or queue a user message.
+        console.warn(`[bridge] Post-auth ${msg.type} from non-active ws; ignoring`);
+        return;
       }
 
       switch (msg.type) {
