@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<OfficeApp
+  xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xsi:type="TaskPaneApp">
+
+  <Id>27ee7761-18ca-4fae-b482-4171d5afa6cd</Id>
+  <Version>0.1.0.0</Version>
+  <ProviderName>Local Dev</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Office Claude (Word)" />
+  <Description DefaultValue="Bring local Claude Code into Word. Powered by Claude." />
+  <IconUrl DefaultValue="http://127.0.0.1:47824/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="http://127.0.0.1:47824/icon-80.png" />
+  <SupportUrl DefaultValue="http://127.0.0.1:47824/" />
+
+  <AppDomains>
+    <AppDomain>http://127.0.0.1:47824</AppDomain>
+  </AppDomains>
+
+  <Hosts>
+    <Host Name="Document" />
+  </Hosts>
+
+  <DefaultSettings>
+    <SourceLocation DefaultValue="http://127.0.0.1:47824/word/index.html" />
+  </DefaultSettings>
+
+  <Permissions>ReadWriteDocument</Permissions>
+</OfficeApp>

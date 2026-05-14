@@ -198,14 +198,110 @@ export function createOfficeBridgeMcp(bridge) {
     },
   );
 
+  // ---- Excel tools ---------------------------------------------------------
+  // Same WS-bridge round-trip pattern as the Word tools above. The Excel
+  // taskpane registers handlers for these names and executes them inside
+  // Excel.run(...) via Office.js.
+
+  const excel_get_selected_range = tool(
+    "excel_get_selected_range",
+    "Return the user's current selection in the active Excel workbook. Includes the range address (e.g. \"Sheet1!B2:D5\"), the values as a 2D array, and the worksheet name. Call whenever the user refers to 'this', 'these cells', 'the selection', or asks to edit existing content without specifying location.",
+    {},
+    async () => {
+      try { return asMcpResult(await call("excel_get_selected_range", {})); }
+      catch (e) { return asMcpError(e); }
+    },
+  );
+
+  const excel_list_sheets = tool(
+    "excel_list_sheets",
+    "List every worksheet in the active workbook with its name, position, and used-range address. Call this to orient yourself before reading or writing data.",
+    {},
+    async () => {
+      try { return asMcpResult(await call("excel_list_sheets", {})); }
+      catch (e) { return asMcpError(e); }
+    },
+  );
+
+  const excel_read_range = tool(
+    "excel_read_range",
+    "Read values from an Excel range. Pass `address` in A1 notation, optionally sheet-qualified (e.g. \"A1:C10\" or \"Sheet2!A1:C10\"). To read an entire sheet's used range, pass `sheet` and omit `address`. Returns a 2D values array plus the resolved address.",
+    {
+      address: z.string().optional().describe("A1-notation range, optionally sheet-qualified."),
+      sheet: z.string().optional().describe("Worksheet name; defaults to the active sheet. Used when address is omitted (reads the whole used range) or to disambiguate."),
+    },
+    async (args) => {
+      try { return asMcpResult(await call("excel_read_range", args)); }
+      catch (e) { return asMcpError(e); }
+    },
+  );
+
+  const excel_write_range = tool(
+    "excel_write_range",
+    "Write a 2D array of values into an Excel range. The shape of `values` must match the address dimensions (rows × cols). Pass `address` in A1 notation, optionally sheet-qualified.",
+    {
+      address: z.string().describe("Target range in A1 notation."),
+      values: z.array(z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))).describe("2D array of values. Outer = rows, inner = columns."),
+      sheet: z.string().optional().describe("Worksheet name; defaults to the active sheet."),
+    },
+    async (args) => {
+      try { return asMcpResult(await call("excel_write_range", args)); }
+      catch (e) { return asMcpError(e); }
+    },
+  );
+
+  const excel_find_value = tool(
+    "excel_find_value",
+    "Find cells whose value matches a string (case-insensitive substring match by default) across one or all sheets. Returns the address and current value of each match.",
+    {
+      query: z.string().describe("Substring to search for."),
+      sheet: z.string().optional().describe("Worksheet to search; omit to search every sheet."),
+      match_case: z.boolean().optional().default(false),
+      whole_cell: z.boolean().optional().default(false).describe("If true, match only cells whose entire value equals the query."),
+    },
+    async (args) => {
+      try { return asMcpResult(await call("excel_find_value", args)); }
+      catch (e) { return asMcpError(e); }
+    },
+  );
+
+  const excel_insert_rows = tool(
+    "excel_insert_rows",
+    "Insert blank rows in a worksheet. Pass `at` as a 1-based row index — `count` rows will be inserted at that position, shifting existing rows down.",
+    {
+      sheet: z.string().optional().describe("Worksheet name; defaults to the active sheet."),
+      at: z.number().int().positive().describe("1-based row index at which to insert."),
+      count: z.number().int().positive().default(1),
+    },
+    async (args) => {
+      try { return asMcpResult(await call("excel_insert_rows", args)); }
+      catch (e) { return asMcpError(e); }
+    },
+  );
+
+  const excel_delete_rows = tool(
+    "excel_delete_rows",
+    "Delete rows from a worksheet, starting at a 1-based row index for `count` rows.",
+    {
+      sheet: z.string().optional().describe("Worksheet name; defaults to the active sheet."),
+      at: z.number().int().positive().describe("1-based row index to start deleting from."),
+      count: z.number().int().positive().default(1),
+    },
+    async (args) => {
+      try { return asMcpResult(await call("excel_delete_rows", args)); }
+      catch (e) { return asMcpError(e); }
+    },
+  );
+
   return createSdkMcpServer({
     name: "office",
     version: "0.1.0",
-    // alwaysLoad: ensure these four tools are in the initial prompt, not
-    // deferred behind tool-search. They are the only sanctioned editing path
-    // for the active doc, so the agent should always see them.
+    // alwaysLoad: ensure these tools are in the initial prompt, not deferred
+    // behind tool-search. They are the only sanctioned editing path for the
+    // active Office document.
     alwaysLoad: true,
     tools: [
+      // Word tools
       office_get_selection,
       office_read_paragraphs,
       office_insert_paragraphs,
@@ -216,6 +312,14 @@ export function createOfficeBridgeMcp(bridge) {
       office_clear_highlights,
       office_add_comment,
       office_clear_comments,
+      // Excel tools
+      excel_get_selected_range,
+      excel_list_sheets,
+      excel_read_range,
+      excel_write_range,
+      excel_find_value,
+      excel_insert_rows,
+      excel_delete_rows,
     ],
   });
 }

@@ -25,6 +25,11 @@ let wsReady = false;
 let lastSelection = null;
 let activeDocUrl = null;
 
+// Host: "word" or "excel". Set from <body data-host="..."> (the Word and
+// Excel taskpanes each load their own index.html which sets this), with a
+// fallback to Office.context.host when Office.onReady fires.
+let HOST = (document.body.dataset.host === "excel") ? "excel" : "word";
+
 // ---------------------------------------------------------------------------
 // Paragraph addressing
 //
@@ -429,6 +434,28 @@ async function runOfficeTool(msg) {
         break;
       case "office_clear_comments":
         result = await toolClearComments(args);
+        break;
+      // ---- Excel ----
+      case "excel_get_selected_range":
+        result = await toolExcelGetSelectedRange();
+        break;
+      case "excel_list_sheets":
+        result = await toolExcelListSheets();
+        break;
+      case "excel_read_range":
+        result = await toolExcelReadRange(args);
+        break;
+      case "excel_write_range":
+        result = await toolExcelWriteRange(args);
+        break;
+      case "excel_find_value":
+        result = await toolExcelFindValue(args);
+        break;
+      case "excel_insert_rows":
+        result = await toolExcelInsertRows(args);
+        break;
+      case "excel_delete_rows":
+        result = await toolExcelDeleteRows(args);
         break;
       default:
         throw new Error(`Unknown tool: ${name}`);
@@ -1082,6 +1109,175 @@ async function toolAddComment({ paragraph_id, query, text }) {
   });
 }
 
+// ===========================================================================
+// Excel tool handlers
+// ===========================================================================
+// Each is invoked from runOfficeTool's switch when the active host is Excel.
+// All operations go through Excel.run for proper context lifecycle. Address
+// strings use A1 notation, optionally sheet-qualified (e.g. "Sheet1!A1:C5").
+
+function _splitSheetAddress(address, fallbackSheetName) {
+  // Returns { sheetName, a1 } from "Sheet1!A1:B2" or "A1:B2" (uses fallback).
+  if (!address) return { sheetName: fallbackSheetName, a1: null };
+  const m = /^(?:'([^']+)'|([^!]+))!(.+)$/.exec(address);
+  if (m) return { sheetName: m[1] || m[2], a1: m[3] };
+  return { sheetName: fallbackSheetName, a1: address };
+}
+
+async function _activeSheetName(context) {
+  const ws = context.workbook.worksheets.getActiveWorksheet();
+  ws.load("name");
+  await context.sync();
+  return ws.name;
+}
+
+async function toolExcelGetSelectedRange() {
+  return await Excel.run(async (context) => {
+    const range = context.workbook.getSelectedRange();
+    range.load("address, values, rowCount, columnCount, worksheet/name");
+    await context.sync();
+    return {
+      address: range.address,
+      sheet: range.worksheet.name,
+      row_count: range.rowCount,
+      column_count: range.columnCount,
+      values: range.values,
+    };
+  });
+}
+
+async function toolExcelListSheets() {
+  return await Excel.run(async (context) => {
+    const sheets = context.workbook.worksheets;
+    sheets.load("items/name, items/position");
+    const active = context.workbook.worksheets.getActiveWorksheet();
+    active.load("name");
+    await context.sync();
+    // Load used range per sheet (separate sync because we needed names first).
+    const used = sheets.items.map(s => {
+      const r = s.getUsedRangeOrNullObject(true);
+      r.load("address, rowCount, columnCount, isNullObject");
+      return { sheet: s, used: r };
+    });
+    await context.sync();
+    return {
+      active_sheet: active.name,
+      sheets: used.map(({ sheet, used: u }) => ({
+        name: sheet.name,
+        position: sheet.position,
+        used_range: u.isNullObject ? null : u.address,
+        row_count: u.isNullObject ? 0 : u.rowCount,
+        column_count: u.isNullObject ? 0 : u.columnCount,
+      })),
+    };
+  });
+}
+
+async function toolExcelReadRange({ address = null, sheet = null }) {
+  return await Excel.run(async (context) => {
+    const activeName = sheet || await _activeSheetName(context);
+    const { sheetName, a1 } = _splitSheetAddress(address, activeName);
+    const ws = context.workbook.worksheets.getItem(sheetName);
+    const range = a1 ? ws.getRange(a1) : ws.getUsedRange(true);
+    range.load("address, values, rowCount, columnCount");
+    await context.sync();
+    return {
+      sheet: sheetName,
+      address: range.address,
+      row_count: range.rowCount,
+      column_count: range.columnCount,
+      values: range.values,
+    };
+  });
+}
+
+async function toolExcelWriteRange({ address, values, sheet = null }) {
+  if (!Array.isArray(values) || !values.length || !Array.isArray(values[0])) {
+    throw new Error("`values` must be a non-empty 2D array.");
+  }
+  return await Excel.run(async (context) => {
+    const activeName = sheet || await _activeSheetName(context);
+    const { sheetName, a1 } = _splitSheetAddress(address, activeName);
+    if (!a1) throw new Error("`address` is required for write_range.");
+    const ws = context.workbook.worksheets.getItem(sheetName);
+    const range = ws.getRange(a1);
+    range.load("rowCount, columnCount, address");
+    await context.sync();
+    if (range.rowCount !== values.length || range.columnCount !== values[0].length) {
+      throw new Error(
+        `Shape mismatch: range ${range.address} is ${range.rowCount}×${range.columnCount} ` +
+        `but values is ${values.length}×${values[0].length}.`,
+      );
+    }
+    range.values = values;
+    await context.sync();
+    return { sheet: sheetName, address: range.address, written: values.length * values[0].length };
+  });
+}
+
+async function toolExcelFindValue({ query, sheet = null, match_case = false, whole_cell = false }) {
+  if (typeof query !== "string" || !query.length) throw new Error("`query` is required.");
+  return await Excel.run(async (context) => {
+    const targetSheets = sheet
+      ? [context.workbook.worksheets.getItem(sheet)]
+      : (() => {
+          const all = context.workbook.worksheets;
+          all.load("items/name");
+          return all;
+        })();
+    if (Array.isArray(targetSheets)) {
+      // single sheet case — load name for the result
+      targetSheets[0].load("name");
+    }
+    await context.sync();
+    const sheetsToScan = Array.isArray(targetSheets) ? targetSheets : targetSheets.items;
+    const matches = [];
+    for (const ws of sheetsToScan) {
+      const used = ws.getUsedRangeOrNullObject(true);
+      used.load("address, values, rowCount, columnCount, isNullObject");
+      await context.sync();
+      if (used.isNullObject) continue;
+      const q = match_case ? query : query.toLowerCase();
+      for (let r = 0; r < used.rowCount; r++) {
+        for (let c = 0; c < used.columnCount; c++) {
+          const v = used.values[r][c];
+          if (v === null || v === undefined || v === "") continue;
+          const s = match_case ? String(v) : String(v).toLowerCase();
+          const hit = whole_cell ? s === q : s.includes(q);
+          if (hit) matches.push({ sheet: ws.name, row: r + 1, column: c + 1, value: v });
+        }
+      }
+    }
+    return { query, match_count: matches.length, matches };
+  });
+}
+
+async function toolExcelInsertRows({ sheet = null, at, count = 1 }) {
+  if (!Number.isInteger(at) || at < 1) throw new Error("`at` must be a positive integer.");
+  if (!Number.isInteger(count) || count < 1) throw new Error("`count` must be a positive integer.");
+  return await Excel.run(async (context) => {
+    const activeName = sheet || await _activeSheetName(context);
+    const ws = context.workbook.worksheets.getItem(activeName);
+    const target = ws.getRange(`${at}:${at + count - 1}`);
+    target.insert(Excel.InsertShiftDirection.down);
+    await context.sync();
+    return { sheet: activeName, inserted_at: at, count };
+  });
+}
+
+async function toolExcelDeleteRows({ sheet = null, at, count = 1 }) {
+  if (!Number.isInteger(at) || at < 1) throw new Error("`at` must be a positive integer.");
+  if (!Number.isInteger(count) || count < 1) throw new Error("`count` must be a positive integer.");
+  return await Excel.run(async (context) => {
+    const activeName = sheet || await _activeSheetName(context);
+    const ws = context.workbook.worksheets.getItem(activeName);
+    const target = ws.getRange(`${at}:${at + count - 1}`);
+    target.delete(Excel.DeleteShiftDirection.up);
+    await context.sync();
+    return { sheet: activeName, deleted_at: at, count };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Selection tracking — push context_update on changes (debounced).
 // ---------------------------------------------------------------------------
@@ -1089,16 +1285,26 @@ let selectionDebounce = null;
 
 async function captureSelection() {
   try {
-    const r = await Word.run(async (context) => {
-      const sel = context.document.getSelection();
-      sel.load("text");
-      await context.sync();
-      return {
-        text: sel.text,
-        para_id: null,           // index-based IDs aren't worth computing on every cursor tick
-        para_count: null,
-      };
-    });
+    let r;
+    if (HOST === "excel") {
+      r = await Excel.run(async (context) => {
+        const range = context.workbook.getSelectedRange();
+        range.load("address, values, rowCount, columnCount");
+        await context.sync();
+        const cellCount = (range.rowCount || 0) * (range.columnCount || 0);
+        const text = cellCount === 1
+          ? String(range.values?.[0]?.[0] ?? "")
+          : `${range.address} (${range.rowCount}×${range.columnCount})`;
+        return { text, address: range.address };
+      });
+    } else {
+      r = await Word.run(async (context) => {
+        const sel = context.document.getSelection();
+        sel.load("text");
+        await context.sync();
+        return { text: sel.text, para_id: null, para_count: null };
+      });
+    }
     lastSelection = r;
     refreshSelectionChip();
     if (wsReady) {
@@ -1173,10 +1379,15 @@ function applyOfficeTheme() {
 // Boot
 // ---------------------------------------------------------------------------
 Office.onReady((info) => {
-  if (info.host !== Office.HostType.Word) {
+  // Reconcile HOST with what Office reports — body data-host should already
+  // match, but Office is authoritative if they disagree.
+  if (info.host === Office.HostType.Excel) HOST = "excel";
+  else if (info.host === Office.HostType.Word) HOST = "word";
+  else {
     setStatus("err", `Unsupported host: ${info.host}`);
     return;
   }
+  document.body.dataset.host = HOST;
 
   applyOfficeTheme();
 
@@ -1185,11 +1396,24 @@ Office.onReady((info) => {
   } catch { /* ignore */ }
   refreshMismatchIndicator();
 
-  // Wire selection event.
-  Word.run(async (context) => {
-    context.document.onSelectionChanged.add(onSelectionChanged);
-    await context.sync();
-  }).catch(err => console.warn("Could not attach selection handler:", err));
+  // Hide host-irrelevant settings.
+  if (HOST === "excel") {
+    const tcRow = document.getElementById("setting-track-changes-mode")?.closest(".setting-row");
+    if (tcRow) tcRow.hidden = true;
+  }
+
+  // Wire selection-change event.
+  if (HOST === "excel") {
+    Excel.run(async (context) => {
+      context.workbook.onSelectionChanged.add(onSelectionChanged);
+      await context.sync();
+    }).catch(err => console.warn("Could not attach Excel selection handler:", err));
+  } else {
+    Word.run(async (context) => {
+      context.document.onSelectionChanged.add(onSelectionChanged);
+      await context.sync();
+    }).catch(err => console.warn("Could not attach Word selection handler:", err));
+  }
 
   // Capture once on boot.
   captureSelection();
