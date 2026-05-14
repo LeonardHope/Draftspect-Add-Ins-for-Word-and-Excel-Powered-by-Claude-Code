@@ -431,6 +431,12 @@ async function* userMessageStream() {
 
 function renderContextHeader(ctx) {
   const parts = [];
+  // Host first so the agent immediately knows which tool family to use.
+  // Both office_* (Word) and excel_* tools are registered simultaneously;
+  // without this hint, the agent can pick the wrong family.
+  if (ctx.host === "word" || ctx.host === "excel") {
+    parts.push(`Host: ${ctx.host === "word" ? "Word" : "Excel"}`);
+  }
   if (ctx.activeDoc) parts.push(`Doc: ${ctx.activeDoc}`);
   if (ctx.selection) {
     const s = ctx.selection;
