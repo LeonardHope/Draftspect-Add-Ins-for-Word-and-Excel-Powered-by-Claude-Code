@@ -1,0 +1,128 @@
+// Unit tests for daemon/context.mjs — the per-workspace context-files block
+// embedded in CLAUDE.md. Tests cover round-trips, validation of missing
+// paths, and parser tolerance for hand-edited blocks.
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { getContextEntries, setContextEntries } from "../daemon/context.mjs";
+
+async function makeTmpWs() {
+  const dir = await mkdtemp(join(tmpdir(), "office-claude-ctx-test-"));
+  return dir;
+}
+
+test("getContextEntries returns [] when CLAUDE.md is missing", async () => {
+  const ws = await makeTmpWs();
+  try {
+    const got = await getContextEntries(ws);
+    assert.deepEqual(got, []);
+  } finally {
+    await rm(ws, { recursive: true, force: true });
+  }
+});
+
+test("getContextEntries returns [] when CLAUDE.md exists but has no block", async () => {
+  const ws = await makeTmpWs();
+  try {
+    await writeFile(join(ws, "CLAUDE.md"), "# Workspace\n\nNothing here yet.\n");
+    const got = await getContextEntries(ws);
+    assert.deepEqual(got, []);
+  } finally {
+    await rm(ws, { recursive: true, force: true });
+  }
+});
+
+test("setContextEntries + getContextEntries round-trip", async () => {
+  const ws = await makeTmpWs();
+  try {
+    // Create real files/folders so validation passes.
+    const folderPath = join(ws, "notes");
+    const filePath = join(ws, "ref.md");
+    await mkdir(folderPath);
+    await writeFile(filePath, "# ref\n");
+
+    const { saved, errors } = await setContextEntries(ws, [
+      { path: folderPath, description: "Project notes" },
+      { path: filePath, description: "Reference doc" },
+    ]);
+    assert.equal(errors.length, 0);
+    assert.equal(saved.length, 2);
+    assert.equal(saved[0].kind, "folder");
+    assert.equal(saved[1].kind, "file");
+
+    const round = await getContextEntries(ws);
+    assert.equal(round.length, 2);
+    assert.equal(round[0].path, folderPath);
+    assert.equal(round[0].kind, "folder");
+    assert.equal(round[0].description, "Project notes");
+    assert.equal(round[1].path, filePath);
+    assert.equal(round[1].kind, "file");
+  } finally {
+    await rm(ws, { recursive: true, force: true });
+  }
+});
+
+test("setContextEntries reports missing-path errors instead of saving them", async () => {
+  const ws = await makeTmpWs();
+  try {
+    const realFolder = join(ws, "real");
+    await mkdir(realFolder);
+    const missing = join(ws, "does-not-exist");
+
+    const { saved, errors } = await setContextEntries(ws, [
+      { path: realFolder },
+      { path: missing },
+    ]);
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0].path, realFolder);
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].path, missing);
+    assert.match(errors[0].error, /Does not exist/);
+  } finally {
+    await rm(ws, { recursive: true, force: true });
+  }
+});
+
+test("setContextEntries replaces an existing block in place (no duplication)", async () => {
+  const ws = await makeTmpWs();
+  try {
+    const f1 = join(ws, "one");
+    const f2 = join(ws, "two");
+    await mkdir(f1);
+    await mkdir(f2);
+
+    await setContextEntries(ws, [{ path: f1 }]);
+    await setContextEntries(ws, [{ path: f2 }]);
+
+    const got = await getContextEntries(ws);
+    assert.equal(got.length, 1);
+    assert.equal(got[0].path, f2);
+
+    const md = await readFile(join(ws, "CLAUDE.md"), "utf8");
+    const beginCount = (md.match(/CONTEXT-FILES:BEGIN/g) || []).length;
+    const endCount = (md.match(/CONTEXT-FILES:END/g) || []).length;
+    assert.equal(beginCount, 1, "should have exactly one BEGIN marker");
+    assert.equal(endCount, 1, "should have exactly one END marker");
+  } finally {
+    await rm(ws, { recursive: true, force: true });
+  }
+});
+
+test("setContextEntries on empty CLAUDE.md preserves no prior content but wraps the block in a heading", async () => {
+  const ws = await makeTmpWs();
+  try {
+    const folder = join(ws, "data");
+    await mkdir(folder);
+    await setContextEntries(ws, [{ path: folder, description: "data files" }]);
+    const md = await readFile(join(ws, "CLAUDE.md"), "utf8");
+    assert.match(md, /^# /m, "should have a top-level heading");
+    assert.match(md, /CONTEXT-FILES:BEGIN/);
+    assert.match(md, /\(folder\) `[^`]+` — data files/);
+  } finally {
+    await rm(ws, { recursive: true, force: true });
+  }
+});
