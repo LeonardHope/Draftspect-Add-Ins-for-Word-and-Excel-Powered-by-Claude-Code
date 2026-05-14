@@ -348,16 +348,35 @@ async function buildSystemPromptAppend() {
 // occasionally falls back to unzipping .docx XML to extract text, which is
 // safe and read-only.
 // ---------------------------------------------------------------------------
+// Path/extension test for the Office-managed file types. We block writes to
+// these via Write/Edit/MultiEdit AND via Bash commands that mention them by
+// name. Not airtight (echo-redirects, base64-decoded payloads, etc. evade),
+// but it defends the obvious foot-gun: `cp draft.docx active.docx`,
+// `rm -rf workspace/*.docx`, `mv old.xlsx active.xlsx`.
+const OFFICE_FILE_EXT = /\.(docx?|xlsx?|docm|xlsm)\b/i;
+
+function denyWithOfficeMessage() {
+  return {
+    behavior: "deny",
+    message:
+      "Refusing to write/move/delete a Word/Excel file via filesystem tools. These files are " +
+      "managed by Office and may have unsaved changes; a filesystem mutation can corrupt the " +
+      "active document. Use the host's editing tools (office_* for Word, excel_* for Excel) " +
+      "to change document contents.",
+  };
+}
+
 function customPermissionHandler(toolName, input) {
   if (toolName === "Write" || toolName === "Edit" || toolName === "MultiEdit") {
     const path = input?.file_path ?? input?.path;
-    if (typeof path === "string" && /\.(docx?|xlsx?|docm|xlsm)$/i.test(path)) {
-      return Promise.resolve({
-        behavior: "deny",
-        message:
-          "Refusing to write to a Word/Excel file via filesystem tools. These files are managed by Office and may have unsaved changes. " +
-          "Use the host's editing tools (office_* for Word, excel_* for Excel) to modify the active document.",
-      });
+    if (typeof path === "string" && OFFICE_FILE_EXT.test(path)) {
+      return Promise.resolve(denyWithOfficeMessage());
+    }
+  }
+  if (toolName === "Bash") {
+    const cmd = input?.command;
+    if (typeof cmd === "string" && OFFICE_FILE_EXT.test(cmd)) {
+      return Promise.resolve(denyWithOfficeMessage());
     }
   }
   // Everything else: auto-approve.

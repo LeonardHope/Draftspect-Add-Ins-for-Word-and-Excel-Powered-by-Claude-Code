@@ -125,6 +125,28 @@ const $chipDetach = document.getElementById("selection-chip-detach");
 let assistantTurnElem = null;
 let attachSelection = true;
 
+// True while a user turn is mid-flight (we've sent user_message and are
+// waiting for turn_complete / error / auth_error). The composer is disabled
+// during this window so a second submit can't break turn ordering — without
+// the gate, appendUserMessage would reset assistantTurnElem and subsequent
+// streaming deltas would land in a new (wrong) bubble.
+let turnInFlight = false;
+
+function setComposerDisabled(disabled) {
+  $send.disabled = disabled;
+  $input.disabled = disabled;
+}
+
+function beginTurn() {
+  turnInFlight = true;
+  setComposerDisabled(true);
+}
+
+function endTurn() {
+  turnInFlight = false;
+  setComposerDisabled(false);
+}
+
 function setStatus(state, label) {
   $status.className = `status ${state}`;
   $status.textContent = label;
@@ -349,6 +371,10 @@ function wsConnect() {
   ws.onclose = () => {
     wsReady = false;
     setStatus("err", "Disconnected — retrying…");
+    // Release the composer if a turn was mid-flight when the connection
+    // dropped — otherwise the user is stuck waiting for a turn_complete
+    // that will never arrive.
+    endTurn();
     // Daemon may have been restarted, in which case it has rotated the
     // bridge token. Re-fetch from /bridge-token before each reconnect
     // attempt so the next hello carries the current token. fetchBridgeToken
@@ -401,12 +427,15 @@ async function handleServerMessage(msg) {
         setStatus("working", statusForTool(msg.tool));
       } else if (msg.event === "turn_complete") {
         if (wsReady) setStatus("ok", "Ready");
+        endTurn();
       } else if (msg.event === "error") {
         appendEvent(`Error: ${msg.error}`);
         if (wsReady) setStatus("ok", "Ready");
+        endTurn();
       } else if (msg.event === "auth_error") {
         showAuthErrorBanner(msg.error);
         if (wsReady) setStatus("err", "Sign-in required");
+        endTurn();
       } else if (msg.event === "session_init") {
         appendEvent(`Session ${msg.session_id?.slice(0, 8)}… (${msg.model})`);
       } else if (msg.event === "cwd_changed") {
@@ -1488,6 +1517,10 @@ function onSelectionChanged() {
 // ---------------------------------------------------------------------------
 $composer.addEventListener("submit", (e) => {
   e.preventDefault();
+  // Gate: refuse new submissions while a turn is still streaming. Without
+  // this, appendUserMessage resets the assistant bubble pointer and the
+  // remaining deltas of the prior turn would mis-order into a new bubble.
+  if (turnInFlight) return;
   const text = $input.value.trim();
   if (!text) return;
   if (!wsReady) {
@@ -1497,6 +1530,7 @@ $composer.addEventListener("submit", (e) => {
   appendUserMessage(text);
   wsSend({ type: "user_message", text });
   setStatus("working", "Working…");
+  beginTurn();
   $input.value = "";
   // After sending, the chip resets to "attached" for the next turn.
   attachSelection = true;
@@ -1864,9 +1898,11 @@ function usePreset(p) {
       appendEvent("Not connected to daemon — can't send preset.");
       return;
     }
+    if (turnInFlight) return;
     appendUserMessage(p.prompt);
     wsSend({ type: "user_message", text: p.prompt });
     setStatus("working", "Working…");
+    beginTurn();
     attachSelection = true;
     refreshSelectionChip();
   } else {
