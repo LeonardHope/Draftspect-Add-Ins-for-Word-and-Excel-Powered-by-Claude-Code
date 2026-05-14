@@ -60,13 +60,19 @@ async function docDirOf(p) {
 // Walk up from a file path looking for a real workspace marker. Returns the
 // workspace root if a marker is found, otherwise null. Deliberately does not
 // guess — see suggestWorkspaceRoot for the heuristic fallback.
+//
+// Markers, in priority order:
+//   1. CLAUDE.md or .claude — explicit user intent.
+//   2. .git — the doc lives inside a git repo; the repo root is the workspace.
+//      Previous behavior returned the *child* of the .git dir, which was
+//      wrong: a doc at the repo root returned null, and a doc under repo/docs
+//      returned repo/docs instead of repo.
 export async function resolveWorkspaceRoot(docPath) {
   const p = normalizeDocPath(docPath);
   if (!p) return null;
   const docDir = await docDirOf(p);
 
   let dir = docDir;
-  let prevDir = null;
 
   while (true) {
     if (dir === HOME) return null;
@@ -75,9 +81,8 @@ export async function resolveWorkspaceRoot(docPath) {
     }
     try {
       await stat(join(dir, ".git"));
-      return prevDir;
+      return dir;
     } catch {}
-    prevDir = dir;
     const up = dirname(dir);
     if (up === dir) return null;
     dir = up;
