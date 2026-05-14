@@ -1208,6 +1208,30 @@ function _splitSheetAddress(address, fallbackSheetName) {
   return { sheetName: fallbackSheetName, a1: address };
 }
 
+// Parse the top-left cell of an A1-notation range into 1-based row/col.
+// "C5" → { row: 5, col: 3 }; "AA10" → { row: 10, col: 27 }; "C5:F10" → uses C5.
+// Used so excel_find_value reports absolute spreadsheet coordinates, not
+// 0-based offsets within whatever used-range happens to start at.
+function _topLeftCell(a1OrRange) {
+  const a1 = String(a1OrRange).split(":")[0];
+  const m = /^([A-Za-z]+)(\d+)$/.exec(a1);
+  if (!m) return null;
+  let col = 0;
+  for (const ch of m[1].toUpperCase()) col = col * 26 + (ch.charCodeAt(0) - 64);
+  return { row: parseInt(m[2], 10), col };
+}
+
+// Spreadsheet column number → A1 letters. 1→"A", 27→"AA", etc.
+function _colNumberToLetters(n) {
+  let s = "";
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    s = String.fromCharCode(65 + rem) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
 async function _activeSheetName(context) {
   const ws = context.workbook.worksheets.getActiveWorksheet();
   ws.load("name");
@@ -1262,9 +1286,22 @@ async function toolExcelReadRange({ address = null, sheet = null }) {
     const activeName = sheet || await _activeSheetName(context);
     const { sheetName, a1 } = _splitSheetAddress(address, activeName);
     const ws = context.workbook.worksheets.getItem(sheetName);
-    const range = a1 ? ws.getRange(a1) : ws.getUsedRange(true);
-    range.load("address, values, rowCount, columnCount");
+    // For whole-sheet reads (no explicit address), use the null-object
+    // variant so an empty sheet returns gracefully instead of throwing
+    // an InvalidArgument from Excel.js.
+    const range = a1 ? ws.getRange(a1) : ws.getUsedRangeOrNullObject(true);
+    range.load("address, values, rowCount, columnCount, isNullObject");
     await context.sync();
+    if (!a1 && range.isNullObject) {
+      return {
+        sheet: sheetName,
+        address: null,
+        row_count: 0,
+        column_count: 0,
+        values: [],
+        empty: true,
+      };
+    }
     return {
       sheet: sheetName,
       address: range.address,
@@ -1334,6 +1371,11 @@ async function toolExcelFindValue({ query, sheet = null, match_case = false, who
       used.load("address, values, rowCount, columnCount, isNullObject");
       await context.sync();
       if (used.isNullObject) continue;
+      // The used range may start anywhere on the sheet — e.g. "Sheet1!C5:F10".
+      // Translate per-cell offsets within it into absolute spreadsheet rows
+      // and columns so the agent's row/column numbers match what the user
+      // sees in Excel's row/column headers.
+      const origin = _topLeftCell(used.address) || { row: 1, col: 1 };
       const q = match_case ? query : query.toLowerCase();
       for (let r = 0; r < used.rowCount; r++) {
         for (let c = 0; c < used.columnCount; c++) {
@@ -1341,7 +1383,17 @@ async function toolExcelFindValue({ query, sheet = null, match_case = false, who
           if (v === null || v === undefined || v === "") continue;
           const s = match_case ? String(v) : String(v).toLowerCase();
           const hit = whole_cell ? s === q : s.includes(q);
-          if (hit) matches.push({ sheet: ws.name, row: r + 1, column: c + 1, value: v });
+          if (hit) {
+            const absRow = origin.row + r;
+            const absCol = origin.col + c;
+            matches.push({
+              sheet: ws.name,
+              row: absRow,
+              column: absCol,
+              address: `${_colNumberToLetters(absCol)}${absRow}`,
+              value: v,
+            });
+          }
         }
       }
     }
