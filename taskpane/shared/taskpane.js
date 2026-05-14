@@ -377,6 +377,7 @@ function sendHello() {
   wsSend({
     type: "hello",
     token: bridgeToken,
+    host: HOST,
     active_doc: activeDocUrl,
     selection: attachSelection ? lastSelection : null,
     track_changes_mode: settings.trackChangesMode || "always",
@@ -480,6 +481,16 @@ function effectiveTrackChanges(provided) {
 async function runOfficeTool(msg) {
   const { id, name, args } = msg;
   try {
+    // Host guard: refuse wrong-host tools with a clear message so the
+    // agent can self-correct on its next turn. The daemon registers both
+    // tool families on every session, so this is the only place we can
+    // catch mismatches.
+    if (HOST === "excel" && name.startsWith("office_")) {
+      throw new Error(`Tool ${name} is Word-only; the active host is Excel. Use excel_* tools instead.`);
+    }
+    if (HOST === "word" && name.startsWith("excel_")) {
+      throw new Error(`Tool ${name} is Excel-only; the active host is Word. Use office_* tools instead.`);
+    }
     let result;
     // Apply the user's track-changes mode to every write-tool call before
     // dispatching, so user preference always wins over the agent's value.

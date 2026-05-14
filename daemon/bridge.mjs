@@ -28,6 +28,7 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
     activeDoc: null,
     selection: null,
     trackChangesMode: "always",
+    host: null, // "word" | "excel" — set from the taskpane's hello
   };
 
   // Tool calls awaiting their tool_result. Keyed by id.
@@ -159,12 +160,15 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
           if (typeof msg.track_changes_mode === "string") {
             activeContext.trackChangesMode = msg.track_changes_mode;
           }
+          if (msg.host === "word" || msg.host === "excel") {
+            activeContext.host = msg.host;
+          }
           ws.send(JSON.stringify({
             type: "welcome",
             session_id: randomUUID(),
             server_version: "0.1.0",
           }));
-          console.log("[bridge] hello received; active doc:", activeContext.activeDoc);
+          console.log(`[bridge] hello received; host: ${activeContext.host ?? "?"}; active doc: ${activeContext.activeDoc}`);
           break;
         }
         case "user_message": {
@@ -177,6 +181,9 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
           if (msg.selection !== undefined) activeContext.selection = msg.selection;
           if (typeof msg.track_changes_mode === "string") {
             activeContext.trackChangesMode = msg.track_changes_mode;
+          }
+          if (msg.host === "word" || msg.host === "excel") {
+            activeContext.host = msg.host;
           }
           break;
         }
