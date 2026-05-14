@@ -1,0 +1,237 @@
+import { WebSocketServer } from "ws";
+import { randomUUID } from "node:crypto";
+
+const TOOL_TIMEOUT_MS = 30_000;
+
+export function createBridge({ port, extraHandlers = {}, token, allowedOrigins = [] }) {
+  if (!token) throw new Error("createBridge requires a token");
+  const wss = new WebSocketServer({
+    port,
+    // First gate: only allow upgrades from known origins (the taskpane's
+    // origin = our own HTTP server's). Browsers honor the Origin header on
+    // WebSocket upgrades; rejecting unknown origins blocks malicious local
+    // web pages from driving the agent.
+    verifyClient: (info, cb) => {
+      const origin = info.req.headers.origin || "";
+      if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+        cb(true);
+      } else {
+        console.warn(`[bridge] Rejecting WS upgrade from origin: ${origin || "(none)"}`);
+        cb(false, 403, "Forbidden origin");
+      }
+    },
+  });
+
+  // POC: single active taskpane connection. Last connect wins.
+  let activeWs = null;
+  let activeContext = {
+    activeDoc: null,
+    selection: null,
+    trackChangesMode: "always",
+  };
+
+  // Tool calls awaiting their tool_result. Keyed by id.
+  const pendingTools = new Map();
+
+  // Queue of pending user messages. Waiters are {resolve, reject} so we can
+  // reject pending awaits when the agent session is aborted (otherwise the
+  // suspended generator from the aborted session would consume the next
+  // user message, starving the new session).
+  const userMessageQueue = [];
+  const userMessageWaiters = [];
+
+  function pushUserMessage(text) {
+    if (userMessageWaiters.length > 0) {
+      const { resolve } = userMessageWaiters.shift();
+      resolve({ text, context: { ...activeContext } });
+    } else {
+      userMessageQueue.push({ text, context: { ...activeContext } });
+    }
+  }
+
+  function nextUserMessage() {
+    if (userMessageQueue.length > 0) {
+      return Promise.resolve(userMessageQueue.shift());
+    }
+    return new Promise((resolve, reject) => userMessageWaiters.push({ resolve, reject }));
+  }
+
+  // Reject all pending waiters and drop queued messages. Called before a
+  // session swap so the new session starts cleanly with no zombie consumers.
+  function clearUserMessages() {
+    while (userMessageWaiters.length > 0) {
+      const { reject } = userMessageWaiters.shift();
+      reject(new Error("Session aborted"));
+    }
+    userMessageQueue.length = 0;
+  }
+
+  function send(obj) {
+    if (!activeWs || activeWs.readyState !== activeWs.OPEN) {
+      console.warn("[bridge] No active taskpane; dropping", obj.type);
+      return;
+    }
+    activeWs.send(JSON.stringify(obj));
+  }
+
+  async function callTaskpaneTool(name, args) {
+    if (!activeWs || activeWs.readyState !== activeWs.OPEN) {
+      throw new Error(`Cannot call tool ${name}: no taskpane connected`);
+    }
+    const id = randomUUID();
+    // Capture the WS this tool call is dispatched on. On close, we only
+    // reject pending calls belonging to that specific WS — so a stale
+    // taskpane disconnecting after a new one is already active doesn't
+    // kill the new session's in-flight work.
+    const ownerWs = activeWs;
+    const promise = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingTools.delete(id);
+        reject(new Error(`Tool ${name} timed out after ${TOOL_TIMEOUT_MS}ms`));
+      }, TOOL_TIMEOUT_MS);
+      pendingTools.set(id, { ws: ownerWs, resolve, reject, timer });
+    });
+    send({ type: "tool_call", id, name, args });
+    return await promise;
+  }
+
+  function sendAssistantText(delta) {
+    send({ type: "assistant_text", delta });
+  }
+
+  function sendAssistantEvent(event) {
+    send({ type: "assistant_event", ...event });
+  }
+
+  wss.on("connection", (ws, req) => {
+    console.log(`[bridge] WS connection from ${req.socket.remoteAddress} (origin: ${req.headers.origin || "(none)"})`);
+
+    // Second gate: first message must be a hello with the correct token.
+    // Until that arrives we don't trust the connection — any other message
+    // type is rejected and the socket is closed. The taskpane fetches the
+    // token from /bridge-token over the same-origin HTTP server before
+    // opening the WS.
+    let authed = false;
+
+    ws.on("message", (raw) => {
+      let msg;
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch (e) {
+        console.error("[bridge] Bad JSON from taskpane:", e.message);
+        return;
+      }
+
+      if (!authed) {
+        if (msg.type !== "hello") {
+          console.warn(`[bridge] Pre-auth message ${msg.type}; closing`);
+          ws.close(4001, "Authenticate first");
+          return;
+        }
+        if (msg.token !== token) {
+          console.warn("[bridge] hello with invalid token; closing");
+          ws.close(4002, "Invalid token");
+          return;
+        }
+        authed = true;
+        activeWs = ws;
+      }
+
+      switch (msg.type) {
+        case "hello": {
+          activeContext.activeDoc = msg.active_doc ?? null;
+          activeContext.selection = msg.selection ?? null;
+          if (typeof msg.track_changes_mode === "string") {
+            activeContext.trackChangesMode = msg.track_changes_mode;
+          }
+          ws.send(JSON.stringify({
+            type: "welcome",
+            session_id: randomUUID(),
+            server_version: "0.1.0",
+          }));
+          console.log("[bridge] hello received; active doc:", activeContext.activeDoc);
+          break;
+        }
+        case "user_message": {
+          console.log("[bridge] user_message:", msg.text);
+          pushUserMessage(msg.text);
+          break;
+        }
+        case "context_update": {
+          if (msg.active_doc !== undefined) activeContext.activeDoc = msg.active_doc;
+          if (msg.selection !== undefined) activeContext.selection = msg.selection;
+          if (typeof msg.track_changes_mode === "string") {
+            activeContext.trackChangesMode = msg.track_changes_mode;
+          }
+          break;
+        }
+        case "tool_result": {
+          const pending = pendingTools.get(msg.id);
+          if (!pending) {
+            console.warn("[bridge] tool_result for unknown id:", msg.id);
+            return;
+          }
+          clearTimeout(pending.timer);
+          pendingTools.delete(msg.id);
+          if (msg.ok) {
+            pending.resolve(msg.result);
+          } else {
+            pending.reject(new Error(msg.error ?? "Unknown tool error"));
+          }
+          break;
+        }
+        case "ping": {
+          ws.send(JSON.stringify({ type: "pong" }));
+          break;
+        }
+        default: {
+          // Custom handlers registered by the daemon (e.g. settings / refs).
+          // They receive the message and a `reply(obj)` shortcut that sends
+          // back over the same WS.
+          const handler = extraHandlers[msg.type];
+          if (handler) {
+            const reply = (obj) => ws.send(JSON.stringify(obj));
+            Promise.resolve()
+              .then(() => handler(msg, reply))
+              .catch(err => {
+                console.error(`[bridge] handler for ${msg.type} threw:`, err);
+                reply({ type: msg.type + "_result", ok: false, error: err.message ?? String(err), request_id: msg.request_id });
+              });
+          } else {
+            console.warn("[bridge] Unknown message type:", msg.type);
+          }
+        }
+      }
+    });
+
+    ws.on("close", () => {
+      console.log("[bridge] Taskpane disconnected");
+      if (activeWs === ws) activeWs = null;
+      // Reject only the pending tool calls that were dispatched on THIS ws.
+      // A different (newer) WS may have its own in-flight calls; leave them.
+      for (const [id, p] of pendingTools) {
+        if (p.ws === ws) {
+          clearTimeout(p.timer);
+          p.reject(new Error("Taskpane disconnected"));
+          pendingTools.delete(id);
+        }
+      }
+    });
+
+    ws.on("error", (err) => {
+      console.error("[bridge] WS error:", err.message);
+    });
+  });
+
+  console.log(`[bridge] WebSocket server listening on ws://127.0.0.1:${port} (origin allowlist: ${allowedOrigins.join(", ") || "<empty>"})`);
+
+  return {
+    nextUserMessage,
+    clearUserMessages,
+    callTaskpaneTool,
+    sendAssistantText,
+    sendAssistantEvent,
+    getContext: () => ({ ...activeContext }),
+    isTaskpaneConnected: () => activeWs?.readyState === activeWs?.OPEN,
+  };
+}

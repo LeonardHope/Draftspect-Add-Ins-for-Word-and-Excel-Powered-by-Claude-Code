@@ -1,0 +1,20 @@
+{
+  "name": "office-claude-poc",
+  "version": "0.1.0",
+  "description": "Office (Word + Excel) add-ins that bring local Claude Code into Microsoft Office. Powered by Claude.",
+  "main": "app/main.mjs",
+  "type": "module",
+  "scripts": {
+    "dev": "node daemon/index.mjs",
+    "app": "electron .",
+    "start": "electron ."
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "*",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0"
+  }
+}

@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Patspect</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <link rel="stylesheet" href="taskpane.css" />
+</head>
+<body data-active-tab="chat">
+  <header class="topbar">
+    <span class="status" id="status">connecting…</span>
+    <button class="matter-chip" id="matter-chip" title="Click to switch matters">
+      <span class="matter-warning" id="matter-warning" hidden>⚠</span>
+      <span class="matter-folder" id="matter-folder">(no matter)</span>
+      <span class="matter-caret">▾</span>
+    </button>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab" data-tab="chat" aria-current="page">Chat</button>
+    <button class="tab" data-tab="library">Presets</button>
+    <button class="tab" data-tab="setup">Setup</button>
+  </nav>
+
+  <!-- Chat tab content -->
+  <section class="tab-content" data-tab="chat">
+    <main id="messages" class="messages"></main>
+
+    <div class="selection-chip" id="selection-chip" hidden>
+      <span id="selection-chip-text"></span>
+      <button id="selection-chip-detach" title="Don't use selection as context">×</button>
+    </div>
+
+    <div class="quick-chips" id="quick-chips" hidden></div>
+
+    <form id="composer" class="composer">
+      <textarea id="input" placeholder="Ask Claude…" rows="3" autofocus></textarea>
+      <button type="submit" id="send">Send</button>
+    </form>
+  </section>
+
+  <!-- Library tab content -->
+  <section class="tab-content" data-tab="library" hidden>
+    <div class="library-header">
+      <h3>Presets</h3>
+      <button class="btn-primary btn-small" id="add-preset">+ New preset</button>
+    </div>
+    <div class="library-help">
+      Click a preset to use it. Pinned presets appear as chips above the chat input.
+    </div>
+    <div class="library-list" id="library-list"></div>
+  </section>
+
+  <!-- Setup tab content -->
+  <section class="tab-content" data-tab="setup" hidden>
+    <div class="setup-content">
+
+      <div class="setup-divider">Per-matter</div>
+
+      <div class="setup-section">
+        <h3>Matter folder</h3>
+        <p class="setup-help">
+          The folder the agent treats as the current matter. Click any row
+          to switch. The matter determines which <code>CLAUDE.md</code>,
+          disclosure materials, and prior conversation history apply.
+        </p>
+        <div class="matter-suggest" id="matter-suggest" hidden>
+          <div class="matter-suggest-body">
+            <div class="matter-suggest-label">Use this as the matter folder?</div>
+            <div class="matter-suggest-path" id="matter-suggest-path">—</div>
+          </div>
+          <div class="matter-suggest-actions">
+            <button type="button" class="btn-primary btn-small" id="matter-suggest-accept">Yes</button>
+            <button type="button" class="btn-secondary btn-small" id="matter-suggest-pick">Pick…</button>
+            <button type="button" class="icon-btn matter-suggest-dismiss" id="matter-suggest-dismiss" title="Dismiss">×</button>
+          </div>
+        </div>
+        <div class="references-list" id="matters-list">
+          <div class="references-loading">Loading…</div>
+        </div>
+        <button type="button" class="btn-primary btn-small" id="add-matter">+ Add matter</button>
+        <div class="form-error" id="matter-error" hidden></div>
+      </div>
+
+      <div class="setup-section">
+        <h3>Disclosure materials</h3>
+        <p class="setup-help">
+          Source documents for <em>this</em> matter — invention disclosures,
+          interview transcripts, technical notes, prior-art notes. The agent
+          treats these as primary content when drafting.
+          Saved to this matter's <code>CLAUDE.md</code>.
+        </p>
+        <div class="references-list" id="disclosure-list">
+          <div class="references-loading">Loading…</div>
+        </div>
+        <button type="button" class="btn-primary btn-small add-folder-trigger" data-kind="disclosure">+ Add folder or file</button>
+      </div>
+
+      <div class="setup-divider">Global</div>
+
+      <div class="setup-section">
+        <h3>Drafting guidelines</h3>
+        <p class="setup-help">
+          Folders containing rules, conventions, and attorney preferences for drafting.
+          The agent treats their contents as <em>instructions to follow</em>.
+        </p>
+        <div class="references-list" id="guidelines-list">
+          <div class="references-loading">Loading…</div>
+        </div>
+        <button type="button" class="btn-primary btn-small add-folder-trigger" data-kind="guidelines">+ Add folder</button>
+      </div>
+
+      <div class="setup-section">
+        <h3>Sample applications</h3>
+        <p class="setup-help">
+          Folders containing prior patent applications and example drafts. The agent
+          uses these as <em>style and structure references</em>.
+        </p>
+        <div class="references-list" id="samples-list">
+          <div class="references-loading">Loading…</div>
+        </div>
+        <button type="button" class="btn-primary btn-small add-folder-trigger" data-kind="samples">+ Add folder</button>
+      </div>
+
+      <div class="setup-section">
+        <h3>App preferences</h3>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <div>Track changes mode</div>
+            <select id="setting-track-changes-mode" class="setting-select">
+              <option value="always">Always track (recommended)</option>
+              <option value="modifications">Modifications only (skip fresh-section drafts)</option>
+              <option value="never">Never track (commit changes directly)</option>
+            </select>
+            <small>How the agent should use Word's track-changes feature on its writes. "Always" means every edit is reviewable. "Modifications only" lets multi-paragraph fresh drafts land directly while keeping smaller in-place edits reviewable. "Never" commits all writes directly.</small>
+          </div>
+        </div>
+
+        <label class="setting-row">
+          <input type="checkbox" id="setting-auto-switch-matter" />
+          <div class="setting-text">
+            <div>Auto-switch matter to active doc's folder</div>
+            <small>When you open the add-in in a new Word doc, the agent automatically switches its matter to that doc's folder. Off by default — turn on if you work matter-by-matter and want zero-friction context. Keep off if you sometimes want a cross-matter conversation while editing a specific doc.</small>
+          </div>
+        </label>
+        <label class="setting-row">
+          <input type="checkbox" id="setting-show-diagnostics" />
+          <div class="setting-text">
+            <div>Show diagnostic info in chat</div>
+            <small>Session init, tool calls, and turn-boundary events. Useful while developing; noisy day-to-day.</small>
+          </div>
+        </label>
+      </div>
+
+      <div class="setup-footnote">
+        Drafting setup is saved to <code>~/.claude/word-addin/drafting-setup.md</code>
+        and applies only to this add-in (not your other Claude Code sessions).
+        Disclosure materials are saved to the matter's own <code>CLAUDE.md</code>.
+        Changes take effect immediately — the agent session reloads in the background
+        while preserving your conversation.
+      </div>
+    </div>
+  </section>
+
+  <!-- Add-folder modal (shared between guidelines + samples) -->
+  <div class="modal-backdrop" id="add-folder-modal" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="add-folder-modal-title">Add folder</h3>
+        <button class="icon-btn" id="add-folder-modal-close" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <label>Folder path</label>
+        <div class="path-row">
+          <input type="text" id="add-folder-path" placeholder="/Users/you/firm-library/sample-apps" />
+          <button type="button" class="btn-secondary btn-small" id="add-folder-browse">Browse…</button>
+        </div>
+        <label>Description (optional)</label>
+        <input type="text" id="add-folder-description" placeholder="What's in this folder" />
+        <div class="form-error" id="add-folder-error" hidden></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="add-folder-cancel">Cancel</button>
+        <button type="button" class="btn-primary" id="add-folder-save">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Preset editor modal -->
+  <div class="modal-backdrop" id="preset-modal" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="preset-modal-title">New preset</h3>
+        <button class="icon-btn" id="preset-modal-close" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <label>Title</label>
+        <input type="text" id="preset-title" placeholder="e.g. Check claims for antecedent basis" />
+        <label>Prompt</label>
+        <textarea id="preset-prompt" rows="6" placeholder="What to send to Claude. Can be multi-line."></textarea>
+        <label>Category (optional)</label>
+        <input type="text" id="preset-category" list="preset-categories" placeholder="QC, Drafting, Research, Style…" />
+        <datalist id="preset-categories">
+          <option value="QC"></option>
+          <option value="Drafting"></option>
+          <option value="Research"></option>
+          <option value="Style"></option>
+        </datalist>
+        <label class="checkbox-row">
+          <input type="checkbox" id="preset-auto-send" />
+          <span>Send immediately on click (otherwise fills the input so you can edit)</span>
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="preset-pinned" />
+          <span>Pin to quick-chips above the chat input</span>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="preset-cancel">Cancel</button>
+        <button type="button" class="btn-primary" id="preset-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="taskpane.js"></script>
+</body>
+</html>
