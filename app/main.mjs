@@ -16,8 +16,8 @@ import { isAddinInstalled, installAddin, uninstallAddin } from "./sideload.mjs";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..");
 const DAEMON_ENTRY = join(PROJECT_ROOT, "daemon", "index.mjs");
-const SESSIONS_FILE = join(homedir(), ".claude", "word-addin", "sessions.json");
-const LOG_FILE = join(homedir(), ".claude", "word-addin", "daemon.log");
+const SESSIONS_FILE = join(homedir(), ".claude", "office-claude", "sessions.json");
+const LOG_FILE = join(homedir(), ".claude", "office-claude", "daemon.log");
 
 // Don't launch the daemon with one of these as the initial cwd, even if a
 // stale sessions.json says so. Matches the set in daemon/workspace.mjs.

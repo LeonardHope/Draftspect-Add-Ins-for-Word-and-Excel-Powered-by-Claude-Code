@@ -19,7 +19,7 @@ const PROJECT_ROOT = resolve(__dirname, "..");
 const WS_PORT = 47823;
 const HTTP_PORT = 47824;
 const HTTP_ORIGIN = `http://127.0.0.1:${HTTP_PORT}`;
-const TOKEN_FILE = join(homedir(), ".claude", "word-addin", "bridge-token");
+const TOKEN_FILE = join(homedir(), ".claude", "office-claude", "bridge-token");
 
 // Bridge token — random per-daemon-start. The taskpane fetches it from the
 // HTTP server's /bridge-token endpoint (same-origin, CORS-restricted) and
@@ -300,7 +300,7 @@ async function preflightHttpMcpServers(servers) {
       params: {
         protocolVersion: "2024-11-05",
         capabilities: {},
-        clientInfo: { name: "patspect-daemon-preflight", version: "0.1" },
+        clientInfo: { name: "office-claude-preflight", version: "0.1" },
       },
     });
     try {
