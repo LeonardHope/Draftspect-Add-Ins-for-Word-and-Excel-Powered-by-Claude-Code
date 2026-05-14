@@ -16,6 +16,7 @@
 import { readFile, writeFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, dirname, basename, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const MATTER_MARKERS = ["CLAUDE.md", ".claude"];
 
@@ -41,11 +42,27 @@ const SYSTEM_HOME_CHILDREN = process.platform === "darwin"
     ])
   : new Set();
 
+// Office.js gives us paths in a few shapes depending on platform and where
+// the doc came from:
+//   - macOS local:   "/Users/x/Docs/spec.docx"
+//   - macOS file://: "file:///Users/x/Docs/spec.docx"
+//   - Windows local: "C:\\Users\\x\\Docs\\spec.docx"
+//   - Windows URL:   "file:///C:/Users/x/Docs/spec.docx"
+//   - SharePoint:    "https://contoso.sharepoint.com/…/spec.docx"
+// Hand the URL forms to fileURLToPath so the Windows drive letter survives
+// (a manual `replace(/^file:\/\//)` turns "file:///C:/x" into "/C:/x").
+// Treat non-file:// URLs (SharePoint, OneDrive cloud) as unaddressable.
 function normalizeDocPath(docPath) {
   if (!docPath) return null;
-  let p = docPath.startsWith("file://") ? docPath.replace(/^file:\/\//, "") : docPath;
-  p = decodeURIComponent(p);
-  return resolvePath(p);
+  if (/^file:\/\//i.test(docPath)) {
+    try { return resolvePath(fileURLToPath(docPath)); }
+    catch { return null; }
+  }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(docPath)) {
+    // Some non-file URL (https://…sharepoint…) — no filesystem path to walk.
+    return null;
+  }
+  return resolvePath(decodeURIComponent(docPath));
 }
 
 async function docDirOf(p) {

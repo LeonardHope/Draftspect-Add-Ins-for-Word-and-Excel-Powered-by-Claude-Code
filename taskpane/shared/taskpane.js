@@ -2174,16 +2174,62 @@ $addFolderDescription.addEventListener("keydown", (e) => {
 // ===========================================================================
 let currentWorkspaceCwd = null;
 
-// Path containment check that handles the /Workspace-10 vs /Workspace-1 trap —
-// `startsWith` alone returns true for both. We normalize the parent by
-// stripping any trailing separator and then require child to be the parent
-// exactly OR start with `<parent>/`. Case-sensitive (matches Node's path
-// semantics on macOS even though HFS+ is case-insensitive — close enough for
-// our use).
+// Path-shape helpers for the browser side. Office hands us paths in a few
+// shapes (POSIX, Windows native, file:// URLs); we normalize everything to
+// forward-slash form for comparison.
+function _isWindowsPath(p) {
+  return typeof p === "string" && /^[a-zA-Z]:[\\/]/.test(p);
+}
+
+// Convert any of macOS path, Windows path, file:// URL, or "/C:/..." URL-stripped
+// remnant into a uniform forward-slash representation. Strips trailing slashes.
+function _normalizePathForCompare(p) {
+  if (!p) return "";
+  let s = String(p);
+  // file:// URLs: drop scheme + decode. "file:///C:/x/y" → "/C:/x/y"; on
+  // POSIX "file:///Users/x" → "/Users/x". The Windows-shaped result has a
+  // spurious leading slash before the drive letter; fix that below.
+  if (/^file:\/\//i.test(s)) {
+    s = s.replace(/^file:\/\//i, "");
+    try { s = decodeURIComponent(s); } catch { /* leave as-is */ }
+  }
+  // "/C:/x" → "C:/x" (Office.context.document.url comes in this shape).
+  s = s.replace(/^\/([a-zA-Z]):/, "$1:");
+  // Backslash → forward slash for consistent comparison.
+  s = s.replace(/\\/g, "/");
+  // Trim trailing separator(s) so containment math is uniform.
+  s = s.replace(/\/+$/, "");
+  return s;
+}
+
+// Path containment check that handles the /Workspace-10 vs /Workspace-1 trap
+// (`startsWith` alone returns true for both) and is correct on Windows
+// (drive letters, backslashes, case-insensitive filesystem). Both inputs are
+// normalized to forward-slash form; comparison is case-insensitive when
+// either side starts with a drive letter.
 function isInOrUnder(child, parent) {
   if (!child || !parent) return false;
-  const p = parent.replace(/\/+$/, "");
-  return child === p || child.startsWith(p + "/");
+  const c = _normalizePathForCompare(child);
+  const p = _normalizePathForCompare(parent);
+  if (!c || !p) return false;
+  const caseInsensitive = _isWindowsPath(c) || _isWindowsPath(p);
+  const cc = caseInsensitive ? c.toLowerCase() : c;
+  const pp = caseInsensitive ? p.toLowerCase() : p;
+  return cc === pp || cc.startsWith(pp + "/");
+}
+
+// Doc URL (Office.context.document.url) → directory path, normalized for
+// comparison with currentWorkspaceCwd. Returns "" if the URL doesn't refer
+// to a filesystem location (e.g. SharePoint / OneDrive cloud).
+function _docDirFromActiveUrl(activeDocUrl) {
+  if (!activeDocUrl) return "";
+  // SharePoint / OneDrive cloud URLs are not filesystem paths; skip them so
+  // we don't mis-detect "mismatch" for cloud-hosted docs.
+  if (/^https?:\/\//i.test(activeDocUrl)) return "";
+  const docPath = _normalizePathForCompare(activeDocUrl);
+  // Strip the filename. _normalizePathForCompare gave us forward slashes.
+  const idx = docPath.lastIndexOf("/");
+  return idx > 0 ? docPath.slice(0, idx) : "";
 }
 
 // Replace a list container with a single-line empty-state message. Uses
@@ -2229,11 +2275,11 @@ function setWorkspaceDisplay(cwd) {
 function refreshMismatchIndicator() {
   let mismatch = false;
   if (activeDocUrl && currentWorkspaceCwd) {
-    let docPath = decodeURIComponent(activeDocUrl.replace(/^file:\/\//, ""));
-    // Strip the filename
-    const docDir = docPath.split(/[\\/]/).slice(0, -1).join("/");
-    // Mismatch if docDir isn't underneath the workspace cwd
-    mismatch = docDir && !isInOrUnder(docDir, currentWorkspaceCwd);
+    const docDir = _docDirFromActiveUrl(activeDocUrl);
+    // Mismatch if docDir isn't underneath the workspace cwd. Cloud-hosted
+    // docs (docDir === "") fall through as not-a-mismatch — there's no
+    // filesystem location to compare, so the chip stays neutral.
+    mismatch = !!docDir && !isInOrUnder(docDir, currentWorkspaceCwd);
   }
   const baseTitle = "The agent reads source files (CLAUDE.md, notes, references) from the workspace folder — click to switch workspaces.";
   if (mismatch) {
@@ -2278,9 +2324,8 @@ async function refreshWorkspaceSuggestBanner() {
   if (!activeDocUrl) return;
   if (dismissedWorkspaceSuggestionForDoc === activeDocUrl) return;
 
-  const docDir = decodeURIComponent(activeDocUrl.replace(/^file:\/\//, ""))
-    .split(/[\\/]/).slice(0, -1).join("/");
-  if (currentWorkspaceCwd && isInOrUnder(docDir, currentWorkspaceCwd)) return;
+  const docDir = _docDirFromActiveUrl(activeDocUrl);
+  if (currentWorkspaceCwd && docDir && isInOrUnder(docDir, currentWorkspaceCwd)) return;
 
   let suggestion = null;
   try {
