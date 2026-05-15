@@ -34,11 +34,12 @@ export function createOfficeBridgeMcp(bridge) {
 
   const office_read_paragraphs = tool(
     "office_read_paragraphs",
-    "Read paragraphs from the active Word document. Specify exactly one of `ids` (array of paragraph IDs), `heading_section` (a heading text — returns everything under that heading until the next same-or-higher-level heading), or `range` (an [start_index, end_index] paragraph range). Returns text, paragraph IDs, and style names for each paragraph.",
+    "Read paragraphs from the active Word document. Specify exactly one of `ids` (paragraph IDs), `heading_section` (a heading text — returns everything under that heading until the next same-or-higher-level heading), or `range` (an [start_index, end_index] paragraph range). With NO arguments, returns every paragraph in the doc as a **preview** truncated to ~500 characters each — use this for orientation only. When a preview paragraph has `truncated: true` (and a `full_length` field), the actual paragraph is longer; re-read it via `ids: [<id>]` (full text, no truncation) before quoting or analyzing in-paragraph content. To force a full no-args dump of the whole doc, pass `preview: false` (heavy — only use for short docs).",
     {
-      ids: z.array(z.string()).optional().describe("Paragraph IDs to read."),
-      heading_section: z.string().optional().describe("Read all paragraphs under this heading."),
-      range: z.tuple([z.number().int(), z.number().int()]).optional().describe("[start, end) paragraph indices."),
+      ids: z.array(z.string()).optional().describe("Paragraph IDs to read. Always returns full text (no truncation)."),
+      heading_section: z.string().optional().describe("Read all paragraphs under this heading. Full text."),
+      range: z.tuple([z.number().int(), z.number().int()]).optional().describe("[start, end) paragraph indices. Full text."),
+      preview: z.boolean().optional().describe("When calling with no other args: defaults to true (truncated preview). Set to false for a full-text dump of every paragraph."),
     },
     async (args) => {
       try {

@@ -219,12 +219,17 @@ export async function toolGetSelection() {
 // ---------------------------------------------------------------------------
 // Tool: office_read_paragraphs
 // ---------------------------------------------------------------------------
-export async function toolReadParagraphs({ ids, heading_section, range }) {
+export async function toolReadParagraphs({ ids, heading_section, range, preview }) {
   return await Word.run(async (context) => {
     const { paragraphs, idMode } = await getParagraphsWithIds(context);
     const snapshot = snapshotParagraphs(paragraphs, idMode);
 
     let picked;
+    // Truncation is on by default in the no-args ("dump the whole doc")
+    // mode — that's an orientation pass, not a content read. Targeted forms
+    // (`ids`, `heading_section`, `range`) always return full text. The agent
+    // can also explicitly force `preview: false` in the no-args mode for a
+    // full dump (heavy, but escape-hatch valid).
     let truncate = false;
     if (ids && ids.length > 0) {
       const set = new Set(ids);
@@ -246,17 +251,36 @@ export async function toolReadParagraphs({ ids, heading_section, range }) {
       // with its style and a truncated text preview. The agent picks out the
       // headings.
       picked = snapshot;
-      truncate = true;
+      truncate = preview !== false;
     }
 
+    // Preview length: long enough to surface most in-paragraph references
+    // (numbers, defined terms, citations) while still bounding the response
+    // size on large docs. Was 117 originally — too aggressive; the agent
+    // treated previews as full reads and missed mid-paragraph content.
+    const PREVIEW_LEN = 500;
+
     return {
-      paragraphs: picked.map(p => ({
-        id: p.id,
-        style: p.style,
-        text: truncate && p.text.length > 120 ? p.text.slice(0, 117) + "..." : p.text,
-      })),
+      paragraphs: picked.map(p => {
+        const full = p.text;
+        const isTruncated = truncate && full.length > PREVIEW_LEN;
+        return {
+          id: p.id,
+          style: p.style,
+          text: isTruncated ? full.slice(0, PREVIEW_LEN - 1) + "…" : full,
+          // Structured truncation flag so the agent doesn't have to detect
+          // "…" suffixes. When `truncated` is true, the paragraph has more
+          // content; re-read it via `ids: [<id>]` (always full text) to get
+          // it. `full_length` lets the agent decide if a re-read is worth
+          // the round-trip.
+          ...(isTruncated ? { truncated: true, full_length: full.length } : {}),
+        };
+      }),
       total_in_doc: snapshot.length,
       addressing: idMode,
+      // When truncation is active across the response, surface it at the
+      // top level too. Cheap signal for the agent's next-action decision.
+      ...(truncate ? { preview_mode: true, preview_limit: PREVIEW_LEN } : {}),
     };
   });
 }
