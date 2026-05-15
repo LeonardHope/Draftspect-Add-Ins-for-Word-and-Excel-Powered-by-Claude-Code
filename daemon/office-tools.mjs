@@ -72,7 +72,7 @@ export function createOfficeBridgeMcp(bridge) {
 
   const office_replace_paragraphs = tool(
     "office_replace_paragraphs",
-    "Replace the text of specific paragraphs in the active Word document, identified by ID. One content string per paragraph ID, in matching order. Used for targeted rewrites of the user's selection or specific paragraphs you identified via office_read_paragraphs / office_get_selection. The paragraph's existing style is preserved unless you pass style_per_para. Pass track_changes: true so the user can review the rewrite.",
+    "Replace the entire text of specific paragraphs, 1:1 by ID. **Use this ONLY when the whole paragraph is genuinely being rewritten from scratch** — the user said 'rewrite p47' or 'redraft this paragraph.' For anything narrower (changing a word, fixing a phrase, renaming a term, adjusting one sentence inside an otherwise-intact paragraph), use `office_replace_text` instead — never re-emit a whole paragraph to change part of it. The paragraph's existing style is preserved unless you pass style_per_para. Pass track_changes: true so the user can review the rewrite.",
     {
       ids: z.array(z.string()).describe("Paragraph IDs to replace, in order."),
       content: z.array(z.string()).describe("Replacement text — one string per ID. Length must equal ids.length."),
@@ -163,7 +163,7 @@ export function createOfficeBridgeMcp(bridge) {
 
   const office_replace_text = tool(
     "office_replace_text",
-    "Surgically replace specific text *within* one or more paragraphs without rewriting the rest of the paragraph. Use this for any sub-paragraph edit: changing a single word, fixing a phrase, correcting a sentence, etc. Preserves all surrounding text and the paragraph's style verbatim. Pass `replace: \"\"` to delete the matched text. Pair with `track_changes: true` so the user can review.",
+    "Surgically replace specific text *within* one or more paragraphs without rewriting the rest of the paragraph. **THIS IS THE DEFAULT WRITE TOOL.** Use it for any sub-paragraph edit: changing a single word, fixing a phrase, correcting a sentence, renaming a term across many paragraphs, etc. A single user request can resolve to many `office_replace_text` calls — that is the preferred shape, not one `office_replace_paragraphs` or `office_replace_section` re-emitting everything. Preserves all surrounding text and the paragraph's style verbatim. Pass `replace: \"\"` to delete the matched text. Pair with `track_changes: true` so the user can review.",
     {
       paragraph_ids: z.array(z.string()).describe("Paragraph IDs to operate on. Required — scopes the search to specific paragraphs."),
       find: z.string().describe("Exact text to find. The search is bounded to within each listed paragraph."),
@@ -183,7 +183,7 @@ export function createOfficeBridgeMcp(bridge) {
 
   const office_replace_section = tool(
     "office_replace_section",
-    "Replace an entire section of the active Word document, identified by its heading text. Finds the heading and replaces everything from immediately after the heading until the next same-or-higher-level heading. Preferred for whole-section drafting requests like 'redraft the Background' or 'rewrite the Summary'. Set `track_changes: true` when revising existing content; leave false (default) when drafting from scratch.",
+    "Replace an entire section of the active Word document, identified by its heading text. Finds the heading and replaces everything from immediately after the heading until the next same-or-higher-level heading. **Use ONLY for explicit whole-section rewrites** where the user has clearly asked to throw the existing content away and start over: 'redraft the entire Background,' 'start the Summary over from scratch.' For any request that would leave most paragraphs of the section unchanged, do NOT use this tool — use `office_replace_text` for the actual changes (or `office_replace_paragraphs` for the genuinely-rewritten paragraphs). Re-emitting unchanged paragraphs just to keep them blows up the diff and risks destroying user edits. Set `track_changes: true` when revising existing content; leave false (default) when drafting from scratch.",
     {
       heading: z.string().describe("The heading text identifying the section."),
       content: z.array(z.string()).describe("One string per new paragraph."),
