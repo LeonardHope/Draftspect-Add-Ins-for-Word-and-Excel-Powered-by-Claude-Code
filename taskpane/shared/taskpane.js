@@ -57,7 +57,15 @@ let HOST = (document.body.dataset.host === "excel") ? "excel" : "word";
 // UI helpers
 // ---------------------------------------------------------------------------
 const $messages = document.getElementById("messages");
-const $status = document.getElementById("status");
+// Two status indicators, semantically separate:
+//   $connectionStatus (topbar) — WS bridge / daemon reachability + auth.
+//     Stays put while the user is reading the chat history.
+//   $agentStatus (above composer) — agent activity: Ready / Working —
+//     <tool>… / Stopped. Lives right where the user's eye is when they
+//     send a message.
+const $connectionStatus = document.getElementById("connection-status");
+const $agentStatus = document.getElementById("agent-status");
+const $stopAgent = document.getElementById("stop-agent");
 const $activeDoc = document.getElementById("active-doc");
 const $input = document.getElementById("input");
 const $send = document.getElementById("send");
@@ -91,10 +99,35 @@ function endTurn() {
   setComposerDisabled(false);
 }
 
-function setStatus(state, label) {
-  $status.className = `status ${state}`;
-  $status.textContent = label;
+function setConnectionStatus(state, label) {
+  $connectionStatus.className = `status ${state}`;
+  $connectionStatus.textContent = label;
 }
+
+function setAgentStatus(state, label) {
+  $agentStatus.className = `agent-status ${state}`;
+  $agentStatus.textContent = label;
+  // Stop button is meaningful only while the agent is mid-turn.
+  $stopAgent.hidden = state !== "working";
+}
+
+// Back-compat shim — routes by state semantics: "working" is always the
+// agent indicator; everything else is connection. Only a safety net for
+// any straggler call sites; explicit code uses setConnectionStatus /
+// setAgentStatus directly.
+function setStatus(state, label) {
+  if (state === "working") setAgentStatus(state, label);
+  else setConnectionStatus(state, label);
+}
+
+// Stop button — abort the current agent turn. The daemon picks up the
+// abort, emits turn_complete with interrupted=true (flipping this
+// indicator to "Stopped"), and auto-restarts a fresh resuming loop.
+$stopAgent?.addEventListener("click", () => {
+  if (!wsReady) return;
+  setAgentStatus("working", "Stopping…");
+  wsSend({ type: "stop_agent" });
+});
 
 // Auth-failure banner. Shown across the top of the panel when the daemon
 // emits event: "auth_error". Persists until the user dismisses it; recovery
@@ -167,11 +200,23 @@ const TOOL_STATUS_LABELS = {
   WebFetch:                  "Fetching from the web…",
   WebSearch:                 "Searching the web…",
 };
+// Raw MCP server name → user-facing display name. The in-process bridge
+// server is named "office" in our code, but to the user it's the active
+// host's add-in — "Word" or "Excel". Computed per-call (not cached) since
+// HOST is finalized in Office.onReady, after module load.
+function mcpServerDisplayName(raw) {
+  if (raw === "office") return HOST === "excel" ? "Excel" : "Word";
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
 function statusForTool(name) {
   if (TOOL_STATUS_LABELS[name]) return TOOL_STATUS_LABELS[name];
-  // MCP tools surface as "mcp__<server>__<tool>" — show the server name.
+  // External and in-process MCP tools both surface with the
+  // mcp__<server>__<tool> convention. Strip the prefix and retry the map
+  // — catches our own office_*/excel_* tools if the SDK ever wraps them.
+  const inner = /^mcp__[^_]+__(.+)$/.exec(name || "");
+  if (inner && TOOL_STATUS_LABELS[inner[1]]) return TOOL_STATUS_LABELS[inner[1]];
   const m = /^mcp__([^_]+)__/.exec(name || "");
-  if (m) return `Calling ${m[1]}…`;
+  if (m) return `Calling ${mcpServerDisplayName(m[1])}…`;
   return "Working…";
 }
 
@@ -304,7 +349,7 @@ applySettings();
 // WebSocket
 // ---------------------------------------------------------------------------
 function wsConnect() {
-  setStatus("idle", "Connecting…");
+  setConnectionStatus("idle", "Connecting…");
   ws = new WebSocket(WS_URL);
 
   ws.onopen = () => {
@@ -314,7 +359,7 @@ function wsConnect() {
 
   ws.onclose = () => {
     wsReady = false;
-    setStatus("err", "Disconnected — retrying…");
+    setConnectionStatus("err", "Disconnected — retrying…");
     // Release the composer if a turn was mid-flight when the connection
     // dropped — otherwise the user is stuck waiting for a turn_complete
     // that will never arrive.
@@ -357,7 +402,8 @@ function sendHello() {
 async function handleServerMessage(msg) {
   switch (msg.type) {
     case "welcome":
-      setStatus("ok", "Ready");
+      setConnectionStatus("ok", "Connected");
+      setAgentStatus("idle", "Ready");
       refreshWorkspaceFromDaemon();
       break;
 
@@ -368,17 +414,17 @@ async function handleServerMessage(msg) {
     case "assistant_event":
       if (msg.event === "tool_use_announce") {
         appendToolUse(msg.tool, msg.input);
-        setStatus("working", statusForTool(msg.tool));
+        setAgentStatus("working", statusForTool(msg.tool));
       } else if (msg.event === "turn_complete") {
-        if (wsReady) setStatus("ok", "Ready");
+        setAgentStatus("idle", msg.interrupted ? "Stopped" : "Ready");
         endTurn();
       } else if (msg.event === "error") {
         appendEvent(`Error: ${msg.error}`);
-        if (wsReady) setStatus("ok", "Ready");
+        setAgentStatus("idle", "Ready");
         endTurn();
       } else if (msg.event === "auth_error") {
         showAuthErrorBanner(msg.error);
-        if (wsReady) setStatus("err", "Sign-in required");
+        if (wsReady) setConnectionStatus("err", "Sign-in required");
         endTurn();
       } else if (msg.event === "session_init") {
         appendEvent(`Session ${msg.session_id?.slice(0, 8)}… (${msg.model})`);
@@ -597,7 +643,7 @@ $composer.addEventListener("submit", (e) => {
   }
   appendUserMessage(text);
   wsSend({ type: "user_message", text });
-  setStatus("working", "Working…");
+  setAgentStatus("working", "Working…");
   beginTurn();
   $input.value = "";
   // After sending, the chip resets to "attached" for the next turn.
@@ -646,7 +692,7 @@ Office.onReady((info) => {
   if (info.host === Office.HostType.Excel) HOST = "excel";
   else if (info.host === Office.HostType.Word) HOST = "word";
   else {
-    setStatus("err", `Unsupported host: ${info.host}`);
+    setConnectionStatus("err", `Unsupported host: ${info.host}`);
     return;
   }
   document.body.dataset.host = HOST;
@@ -969,7 +1015,7 @@ function usePreset(p) {
     if (turnInFlight) return;
     appendUserMessage(p.prompt);
     wsSend({ type: "user_message", text: p.prompt });
-    setStatus("working", "Working…");
+    setAgentStatus("working", "Working…");
     beginTurn();
     attachSelection = true;
     refreshSelectionChip();

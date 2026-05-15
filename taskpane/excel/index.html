@@ -10,7 +10,7 @@
 </head>
 <body data-active-tab="chat" data-host="excel">
   <header class="topbar">
-    <span class="status" id="status">connecting…</span>
+    <span class="status" id="connection-status" title="Connection to the Claude Code daemon">Connecting…</span>
     <button class="matter-chip" id="workspace-chip" title="Click to switch workspaces">
       <span class="matter-warning" id="workspace-warning" hidden>⚠</span>
       <span class="matter-folder" id="workspace-folder">(no workspace)</span>
@@ -34,6 +34,11 @@
     </div>
 
     <div class="quick-chips" id="quick-chips" hidden></div>
+
+    <div class="agent-status-row">
+      <span class="agent-status idle" id="agent-status">Ready</span>
+      <button type="button" class="btn-stop" id="stop-agent" title="Stop the agent" hidden>Stop</button>
+    </div>
 
     <form id="composer" class="composer">
       <textarea id="input" placeholder="Ask Claude…" rows="3" autofocus></textarea>
