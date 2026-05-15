@@ -112,19 +112,49 @@ function findHeadingIndex(snapshot, headingText) {
   );
 }
 
-// Infer the body-text style for a section. Walks forward from `fromIdx` for
-// the first non-heading paragraph and returns its style. Falls back to
-// walking backward. Used so that inserted paragraphs pick up the section's
-// body style (e.g. "Acme Body Text") rather than the previous paragraph's
-// style — which would be a heading and would cause new "body" paragraphs to
-// render as headings.
+// Infer the body-text style for the section that contains the insert
+// position `fromIdx`. Algorithm:
+//
+//   1. Find the section we're in by walking BACKWARD from fromIdx-1 to the
+//      nearest heading paragraph. That heading is the top of the section.
+//   2. From the heading, walk FORWARD looking for the first body paragraph
+//      in this section. Stop at the NEXT heading — that means the section
+//      has no body content above the insert (rare — insert is right after
+//      the heading, into an empty section).
+//   3. Return that paragraph's style. That's the canonical body style for
+//      the section.
+//
+// The old implementation walked forward from `fromIdx` first, which leaked
+// the *next* section's body style when the insert was at the end of a
+// section (the inferrer skipped past the next heading instead of stopping
+// at it). Templates that vary the body style between sections made that
+// visibly wrong (no first-line indent, wrong alignment on inserted text).
+//
+// If there's no heading above the insert (pre-heading content / very top
+// of the doc), fall back to the first non-heading paragraph in the doc.
 function inferBodyStyle(snapshot, fromIdx) {
-  for (let i = fromIdx; i < snapshot.length; i++) {
-    if (snapshot[i] && headingLevel(snapshot[i].style) === null) {
+  // Step 1: find the section's heading.
+  let sectionStart = -1;
+  for (let i = fromIdx - 1; i >= 0; i--) {
+    if (snapshot[i] && headingLevel(snapshot[i].style) !== null) {
+      sectionStart = i;
+      break;
+    }
+  }
+
+  // Step 2 + 3: walk forward from the heading for the first body paragraph
+  // in this section. Stop at the next heading.
+  if (sectionStart !== -1) {
+    for (let i = sectionStart + 1; i < snapshot.length; i++) {
+      if (!snapshot[i]) continue;
+      if (headingLevel(snapshot[i].style) !== null) break;
       return snapshot[i].style || null;
     }
   }
-  for (let i = fromIdx - 1; i >= 0; i--) {
+
+  // No heading above the insert — pre-heading content. Fall back to the
+  // first non-heading paragraph in the doc.
+  for (let i = 0; i < snapshot.length; i++) {
     if (snapshot[i] && headingLevel(snapshot[i].style) === null) {
       return snapshot[i].style || null;
     }
