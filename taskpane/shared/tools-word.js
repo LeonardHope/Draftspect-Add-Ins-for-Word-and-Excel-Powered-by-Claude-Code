@@ -132,8 +132,15 @@ function findHeadingIndex(snapshot, headingText) {
 //
 // If there's no heading above the insert (pre-heading content / very top
 // of the doc), fall back to the first non-heading paragraph in the doc.
-function inferBodyStyle(snapshot, fromIdx) {
-  // Step 1: find the section's heading.
+//
+// Returns the INDEX of the canonical body paragraph (or -1). inferBodyStyle
+// is a thin wrapper that returns that paragraph's style name; callers that
+// also clone the paragraph's *direct* formatting (indent, alignment,
+// spacing — which many templates apply manually on top of a plain style
+// like "Normal", so the style name alone doesn't carry them) use this to
+// grab the live Word.Paragraph.
+function findBodyReferenceIndex(snapshot, fromIdx) {
+  // Step 1: find the section's heading by walking backward.
   let sectionStart = -1;
   for (let i = fromIdx - 1; i >= 0; i--) {
     if (snapshot[i] && headingLevel(snapshot[i].style) !== null) {
@@ -142,24 +149,68 @@ function inferBodyStyle(snapshot, fromIdx) {
     }
   }
 
-  // Step 2 + 3: walk forward from the heading for the first body paragraph
-  // in this section. Stop at the next heading.
+  // Step 2: from the heading, the first body paragraph in THIS section.
+  // Stop at the next heading.
   if (sectionStart !== -1) {
     for (let i = sectionStart + 1; i < snapshot.length; i++) {
       if (!snapshot[i]) continue;
       if (headingLevel(snapshot[i].style) !== null) break;
-      return snapshot[i].style || null;
+      return i;
     }
   }
 
-  // No heading above the insert — pre-heading content. Fall back to the
-  // first non-heading paragraph in the doc.
+  // Fallback: first non-heading paragraph in the doc (pre-heading content).
   for (let i = 0; i < snapshot.length; i++) {
-    if (snapshot[i] && headingLevel(snapshot[i].style) === null) {
-      return snapshot[i].style || null;
+    if (snapshot[i] && headingLevel(snapshot[i].style) === null) return i;
+  }
+  return -1;
+}
+
+function inferBodyStyle(snapshot, fromIdx) {
+  const idx = findBodyReferenceIndex(snapshot, fromIdx);
+  return idx === -1 ? null : (snapshot[idx].style || null);
+}
+
+// Paragraph-format properties cloned from a reference body paragraph onto
+// inserted ones. Many templates set these directly (not via the named
+// style), so a style-name copy alone leaves inserts left-aligned with no
+// first-line indent and no inter-paragraph spacing.
+const CLONED_PARA_FORMAT_PROPS = [
+  "alignment", "firstLineIndent", "leftIndent", "rightIndent",
+  "lineSpacing", "spaceBefore", "spaceAfter",
+  "lineUnitBefore", "lineUnitAfter",
+];
+
+// Queue a load of the format props off a reference paragraph. Call before
+// the next context.sync().
+function loadParagraphFormat(refPara) {
+  refPara.load(CLONED_PARA_FORMAT_PROPS.join(", "));
+}
+
+// Snapshot a synced reference paragraph's format values into a plain
+// object. Decouples the captured formatting from the live proxy —
+// necessary for office_replace_section, where the reference paragraph is
+// deleted before the new paragraphs are inserted.
+function snapshotParagraphFormat(refPara) {
+  const out = {};
+  for (const prop of CLONED_PARA_FORMAT_PROPS) {
+    try {
+      const v = refPara[prop];
+      if (v !== undefined && v !== null) out[prop] = v;
+    } catch { /* prop unsupported on this build */ }
+  }
+  return out;
+}
+
+// Apply a snapshotted format object onto a target paragraph.
+function applyParagraphFormat(targetPara, fmt) {
+  if (!fmt) return;
+  for (const prop of CLONED_PARA_FORMAT_PROPS) {
+    const v = fmt[prop];
+    if (v !== undefined && v !== null) {
+      try { targetPara[prop] = v; } catch { /* prop unsupported on this build */ }
     }
   }
-  return null;
 }
 
 // Find the end of a section starting at headingIdx (exclusive): next paragraph
@@ -313,9 +364,20 @@ export async function toolInsertParagraphs({ after, content, track_changes, styl
     // If no explicit style is given, infer the section's body style so we
     // don't inherit a heading's formatting. Start one past the anchor (the
     // first paragraph the new content will sit alongside).
-    const inferredStyle = (style_per_para && style_per_para.length === content.length)
-      ? null
-      : inferBodyStyle(snapshot, anchorIdx + 1);
+    const useInferred = !(style_per_para && style_per_para.length === content.length);
+    const refIdx = useInferred ? findBodyReferenceIndex(snapshot, anchorIdx + 1) : -1;
+    const inferredStyle = (refIdx === -1) ? null : (snapshot[refIdx].style || null);
+
+    // Load the reference body paragraph's *direct* formatting (indent,
+    // alignment, spacing). Templates often apply these manually, so
+    // copying the style name alone leaves inserts mis-formatted.
+    let refFmt = null;
+    if (refIdx !== -1) {
+      const refPara = paragraphs.items[refIdx];
+      loadParagraphFormat(refPara);
+      await context.sync();
+      refFmt = snapshotParagraphFormat(refPara);
+    }
 
     let cursor = anchor;
     const inserted = [];
@@ -324,6 +386,7 @@ export async function toolInsertParagraphs({ after, content, track_changes, styl
       const explicit = style_per_para && style_per_para[i];
       if (explicit) p.style = explicit;
       else if (inferredStyle) p.style = inferredStyle;
+      if (refFmt && !explicit) applyParagraphFormat(p, refFmt);
       inserted.push(p);
       cursor = p;
     }
@@ -472,11 +535,21 @@ export async function toolReplaceSection({ heading, content, track_changes, styl
     if (startIdx === -1) throw new Error(`Heading not found: "${heading}"`);
     const endIdx = findSectionEnd(snapshot, startIdx);
 
-    // Capture the existing section's body style BEFORE deleting, so inserted
-    // paragraphs match. Without this, new paragraphs would inherit the
-    // heading's style (centered/bold/large) and the section would render as
-    // a wall of headings.
-    const bodyStyle = inferBodyStyle(snapshot, startIdx + 1);
+    // Capture the existing section's body style AND direct formatting
+    // BEFORE deleting, so inserted paragraphs match. Without this, new
+    // paragraphs inherit the heading's style (centered/bold/large) and
+    // lose any manually-applied indent/justify/spacing.
+    const refIdx = (style_per_para && style_per_para.length === content.length)
+      ? -1
+      : findBodyReferenceIndex(snapshot, startIdx + 1);
+    const bodyStyle = (refIdx === -1) ? null : (snapshot[refIdx].style || null);
+    let refFmt = null;
+    if (refIdx !== -1) {
+      const refPara = paragraphs.items[refIdx];
+      loadParagraphFormat(refPara);
+      await context.sync();
+      refFmt = snapshotParagraphFormat(refPara);
+    }
 
     const toDelete = paragraphs.items.slice(startIdx + 1, endIdx);
     const deletedCount = toDelete.length;
@@ -500,6 +573,7 @@ export async function toolReplaceSection({ heading, content, track_changes, styl
       const explicit = style_per_para && style_per_para[i];
       if (explicit) p.style = explicit;
       else if (bodyStyle) p.style = bodyStyle;
+      if (refFmt && !explicit) applyParagraphFormat(p, refFmt);
       inserted.push(p);
       cursor = p;
     }
