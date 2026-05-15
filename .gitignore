@@ -5,6 +5,11 @@ node_modules/
 # running alongside this repo. Keep it out of `git add -A`; this repo's
 # coding-agent contract lives in CLAUDE.md.
 AGENTS.md
+
+# Local-only port tracker: Patspect → this fork. Mirrors the same
+# gitignored convention as the upstream Patspect repo. Working scratch,
+# not repo documentation.
+PORT_TO_OFFICE_ADDINS.md
 dist/
 *.log
 .claude/
