@@ -212,6 +212,20 @@ const bridge = createBridge({
         request_id: msg.request_id,
       });
     },
+    stop_agent: async (msg, reply) => {
+      // User clicked the Stop button in the taskpane. Abort the current
+      // agent loop; the query() iterator's catch path sees AbortError and
+      // (because we flag the session as intentionally interrupted) emits
+      // a turn_complete event with interrupted=true so the taskpane flips
+      // back to Ready and auto-restarts a fresh resuming loop.
+      if (currentSession) {
+        currentSession.interrupted = true;
+        currentSession.abortController.abort();
+        reply({ type: "stop_agent_result", ok: true, request_id: msg.request_id });
+      } else {
+        reply({ type: "stop_agent_result", ok: false, error: "No active agent turn", request_id: msg.request_id });
+      }
+    },
     forget_folder: async (msg, reply) => {
       try {
         await forgetFolder(msg.cwd);
@@ -514,6 +528,18 @@ async function startSessionForFolder(cwd, resumeSessionId = null) {
   // Re-read the drafting setup append fresh each session start.
   const append = await buildSystemPromptAppend();
 
+  // Did this turn see a proper `result` message before the stream ended?
+  // The SDK ends the stream with a `result` on normal completion. On a
+  // usage-limit / quota hit (and some transport failures) the stream just
+  // ends with no result and no thrown error — leaving the taskpane pinned
+  // to "Working…". We track this to recover.
+  let sawResult = false;
+  // Best-effort usage-limit detection from the SDK CLI's stderr. The exact
+  // phrasing varies by SDK version and limit kind (per-minute / daily /
+  // weekly); match broadly.
+  let rateLimitHint = null;
+  const RATE_LIMIT_RE = /(usage limit|rate limit|daily limit|weekly limit|quota|too many requests|429|limit reached|limit will reset|resets? at|upgrade to|out of (?:credits|quota))/i;
+
   // Fire-and-forget; index.mjs keeps running while the agent loop iterates.
   (async () => {
     try {
@@ -532,21 +558,61 @@ async function startSessionForFolder(cwd, resumeSessionId = null) {
           includePartialMessages: true,
           abortController,
           // Surface the SDK CLI's stderr (MCP connect failures, internal
-          // warnings, etc.) in our daemon log instead of letting it vanish.
+          // warnings, etc.) in our daemon log. Also sniff it for
+          // usage-limit phrasing so we can show the user a clear message
+          // instead of a silently stuck "Working…".
           stderr: (data) => {
             for (const line of String(data).split(/\r?\n/)) {
-              if (line.trim()) console.error(`[sdk] ${line}`);
+              if (!line.trim()) continue;
+              console.error(`[sdk] ${line}`);
+              if (!rateLimitHint && RATE_LIMIT_RE.test(line)) rateLimitHint = line.trim();
             }
           },
           ...(resumeSessionId ? { resume: resumeSessionId } : {}),
         },
       })) {
         if (currentSession !== session) break; // superseded by a later switch
+        if (msg.type === "result") sawResult = true;
         handleAgentMessage(msg, session);
+      }
+      // Loop ended normally. If we never saw a `result`, the session is
+      // still the live one, and the user didn't Stop, the stream died
+      // unexpectedly — almost always a usage-limit hit. Tell the taskpane
+      // (so it leaves "Working…") and auto-restart the loop so the next
+      // message has a live consumer (same rationale as the Stop path).
+      if (currentSession === session && !sawResult && !session.interrupted) {
+        const friendly = rateLimitHint
+          ? `Claude usage limit reached. ${rateLimitHint}`
+          : "The agent stopped unexpectedly — this is usually a Claude usage limit. Wait for your limit to reset, or set ANTHROPIC_API_KEY to use an API key.";
+        bridge.sendAssistantEvent({ event: "error", error: friendly });
+        bridge.sendAssistantEvent({ event: "turn_complete", subtype: "stream_ended" });
+        const { cwd: rcwd, sessionId: rsid } = session;
+        setImmediate(() => {
+          startSessionForFolder(rcwd, rsid).catch(restartErr =>
+            console.error("[daemon] post-stream-end session restart failed:", restartErr.message),
+          );
+        });
       }
     } catch (err) {
       if (err.name === "AbortError" || /aborted/i.test(err.message ?? "")) {
-        // Expected when switching sessions; not an error.
+        // Expected when switching sessions OR when the user clicked Stop.
+        // In the stop case (session.interrupted = true) we still need to
+        // flip the taskpane's agent status back to Ready (otherwise it
+        // stays pinned to "Working…") AND auto-restart a fresh resuming
+        // loop — without a live query() iterator awaiting
+        // bridge.nextUserMessage(), the user's next message would enqueue
+        // with nobody to consume it. Let the finally block null
+        // currentSession first (via setImmediate); the fresh
+        // startSessionForFolder then builds cleanly.
+        if (currentSession === session && session.interrupted) {
+          bridge.sendAssistantEvent({ event: "turn_complete", interrupted: true });
+          const { cwd: rcwd, sessionId: rsid } = session;
+          setImmediate(() => {
+            startSessionForFolder(rcwd, rsid).catch(restartErr =>
+              console.error("[daemon] post-stop session restart failed:", restartErr.message),
+            );
+          });
+        }
       } else if (currentSession === session) {
         console.error("[daemon] Agent loop crashed:", err);
         // Detect auth failures and surface them as a distinct event so the
