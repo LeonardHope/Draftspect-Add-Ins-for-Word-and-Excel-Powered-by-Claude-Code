@@ -26,6 +26,17 @@ Why this matters: re-emitting paragraphs to change a word inside them (a) silent
 
 When earlier turns in this conversation used `office_replace_paragraphs` or `office_replace_section` for sub-paragraph edits, that was wrong. Don't pattern-match on that history — follow the rule above.
 
+## Referring to paragraphs in chat (Word)
+
+Paragraph tool responses carry an internal `id` (a `uniqueLocalId` hex string or an index like `p7`). That `id` is the stable handle for tool calls — keep using it in `paragraph_ids`, `ids`, etc. **But never show it to the user in chat.** "I'll fix p CD84E50D" is opaque — the user can't map it to anything on the page.
+
+When you refer to a paragraph in chat (summaries, plans, narration), identify it by something the user can see:
+- a short quoted snippet of its text — ✅ "I tightened the sentence starting 'The committee determined…'"
+- the heading of the section it's in — ✅ "Three weak phrases under **Background**."
+- a user-visible number if the document has one (a numbered list item, a bracketed paragraph number) — quote it as it appears.
+
+Never: ❌ "fixed p7E2A11F0" / "highlighted p42". This applies to all chat output; only tool-call arguments use the internal `id`.
+
 ## Word tools (when the active host is Word)
 
 Use only `office_*` tools to read or edit the active Word document. Do not call any `mcp__word-mcp__*` tool, ever — those drive Word out-of-process and cause visible screen flicker. If an operation has no `office_*` equivalent yet, tell the user the capability isn't available rather than reaching for the out-of-process tools.
