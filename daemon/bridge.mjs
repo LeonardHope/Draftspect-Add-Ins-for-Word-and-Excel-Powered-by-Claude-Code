@@ -79,6 +79,28 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
     userMessageQueue.length = 0;
   }
 
+  // Merge inbound doc/selection/track-changes/host fields into
+  // activeContext. `hello` resets doc+selection (a fresh taskpane
+  // connection — absent fields mean null), while `context_update`
+  // patches (only fields present on the message change). track-changes
+  // and host are "set only when valid" in both modes — a missing host
+  // on a context_update must not null a known host.
+  function mergeContext(msg, { reset = false } = {}) {
+    if (reset) {
+      activeContext.activeDoc = msg.active_doc ?? null;
+      activeContext.selection = msg.selection ?? null;
+    } else {
+      if (msg.active_doc !== undefined) activeContext.activeDoc = msg.active_doc;
+      if (msg.selection !== undefined) activeContext.selection = msg.selection;
+    }
+    if (typeof msg.track_changes_mode === "string") {
+      activeContext.trackChangesMode = msg.track_changes_mode;
+    }
+    if (msg.host === "word" || msg.host === "excel") {
+      activeContext.host = msg.host;
+    }
+  }
+
   function send(obj) {
     if (!activeWs || activeWs.readyState !== activeWs.OPEN) {
       console.warn("[bridge] No active taskpane; dropping", obj.type);
@@ -167,14 +189,7 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
 
       switch (msg.type) {
         case "hello": {
-          activeContext.activeDoc = msg.active_doc ?? null;
-          activeContext.selection = msg.selection ?? null;
-          if (typeof msg.track_changes_mode === "string") {
-            activeContext.trackChangesMode = msg.track_changes_mode;
-          }
-          if (msg.host === "word" || msg.host === "excel") {
-            activeContext.host = msg.host;
-          }
+          mergeContext(msg, { reset: true });
           ws.send(JSON.stringify({
             type: "welcome",
             session_id: randomUUID(),
@@ -189,14 +204,7 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
           break;
         }
         case "context_update": {
-          if (msg.active_doc !== undefined) activeContext.activeDoc = msg.active_doc;
-          if (msg.selection !== undefined) activeContext.selection = msg.selection;
-          if (typeof msg.track_changes_mode === "string") {
-            activeContext.trackChangesMode = msg.track_changes_mode;
-          }
-          if (msg.host === "word" || msg.host === "excel") {
-            activeContext.host = msg.host;
-          }
+          mergeContext(msg);
           break;
         }
         case "tool_result": {
