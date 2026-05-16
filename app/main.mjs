@@ -4,7 +4,7 @@
 // controls, hides the dock icon (we're a background-only app), and restarts
 // the daemon if it crashes. The daemon code itself is untouched.
 
-import { app, Tray, Menu, shell, dialog, nativeImage } from "electron";
+import { app, Tray, Menu, shell, dialog, nativeImage, BrowserWindow } from "electron";
 import { spawn } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import fs from "node:fs";
@@ -167,19 +167,46 @@ async function handleDaemonMessage(msg) {
     const properties = msg.include_files
       ? ["openFile", "openDirectory", "createDirectory"]
       : ["openDirectory", "createDirectory"];
-    // On macOS we're tray-only (LSUIElement), so the open panel surfaces
-    // behind whatever is frontmost (Word/Excel) by default. Force-focus the
-    // app first; with the dock hidden the user only sees the panel come
-    // forward, not the app itself. On Windows, force-focus behaves
-    // differently (taskbar flashing) and isn't typically needed because
-    // tray apps aren't backgrounded the same way — skip it.
-    if (process.platform === "darwin") app.focus({ steal: true });
-    const result = await dialog.showOpenDialog({
+    // We're tray-only (no app window), so the OS open panel surfaces
+    // BEHIND whatever is frontmost (Word/Excel). macOS: force-focus the
+    // app and the panel comes forward (dock is hidden, so nothing else
+    // shows). Windows: app.focus() just flashes the taskbar and the
+    // dialog still opens behind Excel — instead, parent the dialog to a
+    // transient off-screen always-on-top window so it's brought to the
+    // foreground. The helper window is positioned off-screen and
+    // destroyed immediately after, so it never visibly appears.
+    let dialogParent = null;
+    if (process.platform === "darwin") {
+      app.focus({ steal: true });
+    } else if (process.platform === "win32") {
+      dialogParent = new BrowserWindow({
+        width: 1,
+        height: 1,
+        x: -4000,
+        y: -4000,
+        show: false,
+        frame: false,
+        skipTaskbar: true,
+        alwaysOnTop: true,
+      });
+      dialogParent.showInactive();
+      dialogParent.setAlwaysOnTop(true, "screen-saver");
+      dialogParent.focus();
+    }
+    const dialogOpts = {
       title: msg.title || (msg.include_files ? "Choose a folder or file" : "Choose a folder"),
       buttonLabel: msg.button_label || "Use this",
       defaultPath: msg.default_path || undefined,
       properties,
-    });
+    };
+    let result;
+    try {
+      result = dialogParent
+        ? await dialog.showOpenDialog(dialogParent, dialogOpts)
+        : await dialog.showOpenDialog(dialogOpts);
+    } finally {
+      dialogParent?.destroy();
+    }
     if (result.canceled || result.filePaths.length === 0) {
       reply({ ok: true, canceled: true });
       return;

@@ -81,6 +81,16 @@ test("resolveWorkspaceRoot returns null for non-file:// URLs (cloud docs)", asyn
   assert.equal(got, null);
 });
 
+test("resolveWorkspaceRoot does NOT treat a Windows drive path as a URL (regression)", async () => {
+  // Regression: a bare "C:" matched the URL-scheme regex, so every
+  // Windows document path was discarded and the workspace fell back to
+  // the daemon's launch dir. A drive path must resolve to a folder, not
+  // null. (On non-Windows CI, path.resolve keeps the backslashes as
+  // filename chars — that's fine; the point is it's NOT null/URL.)
+  assert.notEqual(await resolveWorkspaceRoot("C:\\Users\\me\\Docs\\spec.docx"), null);
+  assert.notEqual(await resolveWorkspaceRoot("\\\\fileserver\\share\\spec.docx"), null);
+});
+
 test("resolveWorkspaceRoot returns null when the doc sits in an OS-managed $HOME child", async () => {
   if (process.platform !== "darwin") return; // deny-list is macOS-specific
   const fakeHome = await mkdtemp(join(tmpdir(), "cc-office-ws-home-"));
