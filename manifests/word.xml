@@ -7,10 +7,10 @@
 
   <Id>27ee7761-18ca-4fae-b482-4171d5afa6cd</Id>
   <Version>0.1.2.0</Version>
-  <ProviderName>Local Dev</ProviderName>
+  <ProviderName>Draftspect</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Claude Code for Word" />
-  <Description DefaultValue="Bring your local Claude Code into Word. Read and edit the active document; pull in context files from your workspace." />
+  <DisplayName DefaultValue="Draftspect for Word" />
+  <Description DefaultValue="Draftspect brings Claude into Word — read and edit the active document and pull in workspace context files. Powered by Claude." />
   <IconUrl DefaultValue="http://127.0.0.1:47824/icon-32.png" />
   <HighResolutionIconUrl DefaultValue="http://127.0.0.1:47824/icon-64.png" />
   <SupportUrl DefaultValue="http://127.0.0.1:47824/" />

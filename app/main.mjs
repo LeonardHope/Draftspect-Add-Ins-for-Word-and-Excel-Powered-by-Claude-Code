@@ -1,4 +1,4 @@
-// Claude Code for Office — Electron menu bar shell.
+// Draftspect for Office — Electron menu bar shell.
 //
 // Wraps the daemon as a child process, exposes a tray icon with status and
 // controls, hides the dock icon (we're a background-only app), and restarts
@@ -283,13 +283,13 @@ function buildMenu() {
       ? [{ label: "Uninstall add-in", click: () => runUninstall({ interactive: true }) }]
       : []),
     { type: "separator" },
-    { label: "Quit Claude Code for Office", click: () => app.quit() },
+    { label: "Quit Draftspect for Office", click: () => app.quit() },
   ]);
 }
 
 function updateTray() {
   if (!tray) return;
-  tray.setToolTip(`Claude Code for Office — ${statusLabel().replace(/^●\s*/, "")}`);
+  tray.setToolTip(`Draftspect for Office — ${statusLabel().replace(/^●\s*/, "")}`);
   tray.setContextMenu(buildMenu());
 }
 
@@ -317,11 +317,11 @@ async function runInstall({ interactive }) {
       dialog
         .showMessageBox({
           type: "info",
-          title: "Claude Code for Office installed",
+          title: "Draftspect for Office installed",
           message: "The add-in is now registered with Word and Excel.",
           detail:
             "Quit and reopen Word / Excel (if they're already running), then look for " +
-            "Claude Code for Office under Insert → Office Add-ins → Shared Folder.\n\n" +
+            "Draftspect for Office under Insert → Office Add-ins → Shared Folder.\n\n" +
             (process.platform === "win32"
               ? `Trusted catalog registered at:\n${result.catalog}`
               : `Manifests copied to each app's wef/ folder.`),
@@ -359,9 +359,9 @@ async function runUninstall({ interactive }) {
         .showMessageBox({
           type: "info",
           title: "Add-in uninstalled",
-          message: "Claude Code for Office is no longer registered with Word or Excel.",
+          message: "Draftspect for Office is no longer registered with Word or Excel.",
           detail:
-            "The daemon is still running. Quit Claude Code for Office from the tray menu to stop it entirely.",
+            "The daemon is still running. Quit Draftspect for Office from the tray menu to stop it entirely.",
           buttons: ["OK"],
         })
         .catch(() => {});
@@ -389,12 +389,12 @@ async function offerFirstRunInstall() {
   const { response } = await dialog
     .showMessageBox({
       type: "question",
-      title: "Install Claude Code for Office in Word + Excel?",
+      title: "Install Draftspect for Office in Word + Excel?",
       message:
-        "Claude Code for Office can install itself in Word and Excel automatically — no manifest copying or registry editing needed.",
+        "Draftspect for Office can install itself in Word and Excel automatically — no manifest copying or registry editing needed.",
       detail:
         "Click Install to register the add-in now. You can install later from the tray menu " +
-        "if you'd prefer. After installing, open Word/Excel and find Claude Code for Office under " +
+        "if you'd prefer. After installing, open Word/Excel and find Draftspect for Office under " +
         "Insert → Office Add-ins → Shared Folder.",
       buttons: ["Install", "Not now"],
       defaultId: 0,
@@ -424,7 +424,7 @@ app.whenReady().then(async () => {
   const icon = nativeImage.createFromPath(iconPath);
   if (process.platform === "darwin") icon.setTemplateImage(true);
   tray = new Tray(icon);
-  tray.setToolTip("Claude Code for Office");
+  tray.setToolTip("Draftspect for Office");
 
   // Check whether the add-in is already registered and refresh the tray
   // menu, then offer to install on first run.

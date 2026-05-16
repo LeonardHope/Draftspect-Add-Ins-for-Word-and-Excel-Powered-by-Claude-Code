@@ -151,7 +151,7 @@ function showAuthErrorBanner(rawError) {
           <li>Sign in to Claude Code in a terminal — run <code>claude</code> and follow the prompts.</li>
           <li>Or set <code>ANTHROPIC_API_KEY</code> in your shell and relaunch the app.</li>
         </ul>
-        After signing in, quit Claude Code for Office (tray icon) and reopen it.
+        After signing in, quit Draftspect (tray icon) and reopen it.
       </div>
       <details class="auth-error-raw">
         <summary>Raw error</summary>
@@ -814,7 +814,7 @@ function maybeShowOnboarding() {
   card.className = "onboarding-card";
   card.innerHTML = `
     <div class="onboarding-head">
-      <strong>Welcome to Claude Code for ${hostLabel}</strong>
+      <strong>Welcome to Draftspect for ${hostLabel}</strong>
       <button type="button" class="onboarding-dismiss" title="Dismiss">×</button>
     </div>
     <div class="onboarding-body">
