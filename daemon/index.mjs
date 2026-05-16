@@ -245,6 +245,36 @@ function scheduleSessionStart(cwd, sessionId, key, host, reason, { replay = true
   });
 }
 
+// Backoff for the post-stream-end auto-restart. When the SDK stream dies
+// immediately without ever producing a `result` (persistent usage-limit,
+// auth failure, or an SDK fault), the loop would otherwise respawn forever,
+// spamming the pane with an error + turn_complete on every cycle. We track,
+// per pane key, how many such restarts happened with no successful turn in
+// between, inside a rolling window. Past the cap we stop auto-resurrecting
+// that pane; an explicit new user message still gets a fresh attempt (it
+// goes through the un-capped "user message" path) and a completed turn
+// clears the record (see noteSuccessfulTurn).
+const LOOP_RESTART_WINDOW_MS = 60_000;
+const MAX_LOOP_RESTARTS = 5;
+const loopRestartByKey = new Map(); // key -> { count, first }
+
+// Records one failure restart for `key` and returns true if the loop may be
+// auto-restarted, false once the cap is hit within the window.
+function allowFailureRestart(key) {
+  const now = Date.now();
+  let rec = loopRestartByKey.get(key);
+  if (!rec || now - rec.first > LOOP_RESTART_WINDOW_MS) {
+    rec = { count: 0, first: now };
+    loopRestartByKey.set(key, rec);
+  }
+  rec.count += 1;
+  return rec.count <= MAX_LOOP_RESTARTS;
+}
+
+function noteSuccessfulTurn(key) {
+  loopRestartByKey.delete(key);
+}
+
 // Called on every taskpane hello — for ANY open document, many panes
 // possibly connected at once. Connecting a pane must NOT start the agent
 // loop: connect-driven starts amplified the old connect/disconnect
@@ -284,6 +314,7 @@ function onPaneClose(key) {
   if (!key || sessionFor(key)) return;
   workspaceByKey.delete(key);
   explicitWorkspaceKeys.delete(key);
+  loopRestartByKey.delete(key);
 }
 
 // Called when a user message arrives from a pane, BEFORE it's queued.
@@ -853,6 +884,9 @@ async function startSessionForFolder(
         if (msg.type === "result") sawResult = true;
         handleAgentMessage(msg, session);
       }
+      // A turn that produced a `result` means the loop is healthy again —
+      // clear any accumulated failure-restart count for this pane.
+      if (sawResult) noteSuccessfulTurn(key);
       // Loop ended normally. If we never saw a `result`, the session is
       // still the live one, and the user didn't Stop, the stream died
       // unexpectedly — almost always a usage-limit hit. Tell the taskpane
@@ -862,10 +896,27 @@ async function startSessionForFolder(
         const friendly = rateLimitHint
           ? `Claude usage limit reached. ${rateLimitHint}`
           : "The agent stopped unexpectedly — this is usually a Claude usage limit. Wait for your limit to reset, or set ANTHROPIC_API_KEY to use an API key.";
-        bridge.sendAssistantEvent({ event: "error", error: friendly }, key);
         bridge.sendAssistantEvent({ event: "turn_complete", subtype: "stream_ended" }, key);
         const { key: rkey, cwd: rcwd, sessionId: rsid, host: rhost } = session;
-        scheduleSessionStart(rcwd, rsid, rkey, rhost, "post-stream-end");
+        if (allowFailureRestart(key)) {
+          bridge.sendAssistantEvent({ event: "error", error: friendly }, key);
+          scheduleSessionStart(rcwd, rsid, rkey, rhost, "post-stream-end");
+        } else {
+          // Cap hit: the loop has died immediately too many times in a row.
+          // Stop auto-resurrecting it (the respawn was achieving nothing but
+          // error spam) and tell the user how to actually recover.
+          console.error(
+            `[daemon] post-stream-end restart cap hit for key=${key} — pausing auto-restart`,
+          );
+          bridge.sendAssistantEvent(
+            {
+              event: "error",
+              error:
+                "The agent keeps stopping immediately. This is almost always a Claude usage limit or an auth problem. Wait for your limit to reset (or set ANTHROPIC_API_KEY), then send a new message to retry.",
+            },
+            key,
+          );
+        }
       }
     } catch (err) {
       if (err.name === "AbortError" || /aborted/i.test(err.message ?? "")) {

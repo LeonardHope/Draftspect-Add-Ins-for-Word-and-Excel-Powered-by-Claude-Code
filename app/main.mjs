@@ -31,6 +31,12 @@ let daemonStatus = "starting"; // "starting" | "running" | "crashed" | "stopped"
 let currentWorkspace = null;
 let restartAttempts = 0;
 const MAX_RESTART = 3;
+// The restart counter is only zeroed once the daemon has stayed up for this
+// long. Resetting on the first "running" signal would let a daemon that
+// crashes seconds after every start restart forever — the cap would never
+// bite. See PR "crash-cap + restart backoff".
+const STABLE_AFTER_MS = 45_000;
+let stableTimer = null;
 
 // --------------------------------------------------------------------------
 // Daemon lifecycle
@@ -71,12 +77,29 @@ async function startDaemon() {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
   });
 
+  // Arm the stability timer for this process. If it's still the live daemon
+  // after STABLE_AFTER_MS, the start "stuck" and the restart budget is
+  // refilled. A crash before then clears the timer (see the exit handler), so
+  // a fast crash-loop never refills the budget and the cap eventually bites.
+  if (stableTimer) clearTimeout(stableTimer);
+  const thisProc = daemonProcess;
+  stableTimer = setTimeout(() => {
+    if (daemonProcess === thisProc && restartAttempts > 0) {
+      restartAttempts = 0;
+      logStream?.write(
+        `[app] daemon stable for ${STABLE_AFTER_MS / 1000}s — restart counter reset\n`,
+      );
+    }
+  }, STABLE_AFTER_MS);
+
   daemonProcess.stdout.on("data", (chunk) => {
     logStream?.write(chunk);
     const text = chunk.toString();
     if (text.includes("Starting agent loop") || text.includes("Starting session for")) {
       daemonStatus = "running";
-      restartAttempts = 0;
+      // NB: do not reset restartAttempts here — a crash-looping daemon prints
+      // this on every start. The counter is only cleared by the stability
+      // timer once the process has actually stayed up (see startDaemon).
       updateTray();
     }
     const m = /Starting session for (.+?) \(/.exec(text);
@@ -95,6 +118,12 @@ async function startDaemon() {
   daemonProcess.on("exit", (code, signal) => {
     const wasIntentional = signal === "SIGTERM" || daemonStatus === "stopped";
     daemonProcess = null;
+    // The process is gone before it proved stable — cancel the pending reset
+    // so a fast crash-loop keeps spending the restart budget.
+    if (stableTimer) {
+      clearTimeout(stableTimer);
+      stableTimer = null;
+    }
     if (wasIntentional) {
       daemonStatus = "stopped";
     } else {
@@ -150,7 +179,9 @@ async function handleDaemonMessage(msg) {
   // path that doesn't emit this.
   if (msg.type === "daemon_ready") {
     daemonStatus = "running";
-    restartAttempts = 0;
+    // Not reset here for the same reason as the stdout heuristic: a
+    // crash-looping daemon emits daemon_ready on every start. Only the
+    // stability timer clears the counter.
     if (msg.cwd) currentWorkspace = msg.cwd;
     updateTray();
     return;
