@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isAddinInstalled, installAddin, uninstallAddin } from "./sideload.mjs";
+import { isSystemHomeChild } from "../daemon/system-paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..");
@@ -19,21 +20,9 @@ const DAEMON_ENTRY = join(PROJECT_ROOT, "daemon", "index.mjs");
 const SESSIONS_FILE = join(homedir(), ".claude", "office-addins", "sessions.json");
 const LOG_FILE = join(homedir(), ".claude", "office-addins", "daemon.log");
 
-// Don't launch the daemon with one of these as the initial cwd, even if a
-// stale sessions.json says so. Matches the set in daemon/workspace.mjs.
-// macOS-only: Windows has no equivalent OS-managed children of $HOME that
-// could be silently confused with a real workspace folder.
-const HOME = homedir();
-const SYSTEM_HOME_CHILDREN =
-  process.platform === "darwin"
-    ? new Set([
-        join(HOME, "Library"),
-        join(HOME, "Movies"),
-        join(HOME, "Music"),
-        join(HOME, "Pictures"),
-        join(HOME, "Public"),
-      ])
-    : new Set();
+// Don't launch the daemon with an OS-managed $HOME child as the initial
+// cwd, even if a stale sessions.json says so. Canonical set lives in
+// daemon/system-paths.mjs (isSystemHomeChild).
 
 let tray = null;
 let daemonProcess = null;
@@ -49,9 +38,7 @@ const MAX_RESTART = 3;
 async function findInitialWorkspace() {
   try {
     const state = JSON.parse(await readFile(SESSIONS_FILE, "utf8"));
-    const folders = Object.entries(state.folders || {}).filter(
-      ([cwd]) => !SYSTEM_HOME_CHILDREN.has(cwd),
-    );
+    const folders = Object.entries(state.folders || {}).filter(([cwd]) => !isSystemHomeChild(cwd));
     if (folders.length === 0) return null;
     folders.sort(([, a], [, b]) => (b.last_used || "").localeCompare(a.last_used || ""));
     return folders[0][0];

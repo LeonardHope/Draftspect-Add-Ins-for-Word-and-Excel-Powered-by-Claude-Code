@@ -17,6 +17,7 @@ import { readFile, writeFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, dirname, basename, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isSystemHomeChild } from "./system-paths.mjs";
 
 const MATTER_MARKERS = ["CLAUDE.md", ".claude"];
 
@@ -38,20 +39,9 @@ const SUBFOLDER_HINTS = new Set([
   "current",
 ]);
 
-// Immediate children of $HOME that are OS-managed, never workspaces.
-// macOS-specific; on Windows there's no equivalent stuck-state, so the set
-// is empty.
+// OS-managed `$HOME` children that are never workspaces. Single source of
+// truth in ./system-paths.mjs (re-exported below for back-compat).
 const HOME = homedir();
-const SYSTEM_HOME_CHILDREN =
-  process.platform === "darwin"
-    ? new Set([
-        join(HOME, "Library"),
-        join(HOME, "Movies"),
-        join(HOME, "Music"),
-        join(HOME, "Pictures"),
-        join(HOME, "Public"),
-      ])
-    : new Set();
 
 // Office.js gives us paths in a few shapes depending on platform and where
 // the doc came from:
@@ -135,14 +125,14 @@ export async function suggestWorkspaceRoot(docPath) {
   if (!p) return null;
   const docDir = await docDirOf(p);
 
-  if (docDir === HOME || SYSTEM_HOME_CHILDREN.has(docDir) || dirname(docDir) === docDir) {
+  if (docDir === HOME || isSystemHomeChild(docDir) || dirname(docDir) === docDir) {
     return null;
   }
 
   const parentName = basename(docDir).toLowerCase();
   if (SUBFOLDER_HINTS.has(parentName)) {
     const up = dirname(docDir);
-    if (up !== docDir && up !== HOME && !SYSTEM_HOME_CHILDREN.has(up)) {
+    if (up !== docDir && up !== HOME && !isSystemHomeChild(up)) {
       return { cwd: up, confidence: "heuristic" };
     }
   }
@@ -168,5 +158,3 @@ export async function ensureWorkspaceMarker(cwd) {
   await writeFile(join(cwd, "CLAUDE.md"), seed, { encoding: "utf8", flag: "wx" });
   return true;
 }
-
-export { SYSTEM_HOME_CHILDREN };
