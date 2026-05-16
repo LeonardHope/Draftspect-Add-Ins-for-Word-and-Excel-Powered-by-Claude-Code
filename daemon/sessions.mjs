@@ -21,22 +21,15 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, dirname, basename } from "node:path";
+import { isSystemHomeChild } from "./system-paths.mjs";
 
 const FILE = join(homedir(), ".claude", "office-addins", "sessions.json");
 
-// Immediate children of $HOME that are macOS system folders, never matters.
-// Used to silently drop stale entries and refuse new ones so we don't
-// surface ~/Library etc. as a "recent matter".
-const HOME = homedir();
-const SYSTEM_HOME_CHILDREN = new Set([
-  join(HOME, "Library"),
-  join(HOME, "Movies"),
-  join(HOME, "Music"),
-  join(HOME, "Pictures"),
-  join(HOME, "Public"),
-]);
+// Don't persist or surface OS-managed $HOME children (e.g. ~/Library) as
+// a recent workspace. Canonical set lives in ./system-paths.mjs — this
+// was previously a drifted unconditional copy.
 function isAllowedMatterPath(cwd) {
-  return !SYSTEM_HOME_CHILDREN.has(cwd);
+  return !isSystemHomeChild(cwd);
 }
 
 async function readState() {
