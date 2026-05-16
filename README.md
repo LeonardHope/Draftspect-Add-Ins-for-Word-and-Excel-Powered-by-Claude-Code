@@ -197,7 +197,7 @@ Presets are host-specific — Word and Excel each get their own set, editable in
 
 ### Word
 
-Seventeen tools, all through Office.js (no filesystem mutation of the live `.docx`):
+Twenty-six tools, all through Office.js (no filesystem mutation of the live `.docx`):
 
 | Tool                              | Use it for                                              |
 | --------------------------------- | ------------------------------------------------------- |
@@ -218,12 +218,21 @@ Seventeen tools, all through Office.js (no filesystem mutation of the live `.doc
 | `office_clear_highlights`         | By paragraph, section, or all                           |
 | `office_add_comment`              | Anchored on a paragraph or specific text                |
 | `office_clear_comments`           | By paragraph, section, or all                           |
+| `office_list_comments`            | Every comment: id / author / text / resolved            |
+| `office_reply_to_comment`         | Reply to a comment thread by id                         |
+| `office_resolve_comment`          | Resolve or reopen a comment                             |
+| `office_set_list`                 | Bulleted / numbered list from existing paragraphs       |
+| `office_insert_image`             | Inline image from base64                                |
+| `office_insert_hyperlink`         | Linkify a text query or whole paragraph                 |
+| `office_insert_bookmark`          | Named bookmark on a paragraph or query                  |
+| `office_find`                     | Search → matches with their paragraph IDs               |
+| `office_header_footer`            | Set the primary header / footer text                    |
 
 Every write tool respects your track-changes setting.
 
 ### Excel
 
-Sixteen tools, A1 notation, 2D arrays:
+Twenty-three tools, A1 notation, 2D arrays:
 
 | Tool                                                            | Use it for                                            |
 | --------------------------------------------------------------- | ----------------------------------------------------- |
@@ -239,6 +248,12 @@ Sixteen tools, A1 notation, 2D arrays:
 | `excel_clear_range`                                             | Clear contents, formats, or both                      |
 | `excel_add_sheet` / `excel_delete_sheet` / `excel_rename_sheet` | Worksheet management                                  |
 | `excel_select_range`                                            | Select a cell/range and switch to its sheet           |
+| `excel_sort_range`                                              | Sort a range by a column                              |
+| `excel_autofilter`                                              | Apply or remove an AutoFilter                         |
+| `excel_create_table`                                            | Range → named table (ListObject)                      |
+| `excel_add_table_rows`                                          | Append rows to a table                                |
+| `excel_create_chart`                                            | Column / bar / line / pie / scatter / area            |
+| `excel_set_column_width` / `excel_set_row_height`               | Fixed size or autofit                                 |
 
 ### What the agent will refuse
 
