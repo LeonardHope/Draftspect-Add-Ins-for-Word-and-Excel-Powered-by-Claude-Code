@@ -274,6 +274,18 @@ async function onPaneConnect(key, host, doc) {
   await sendTranscriptReplayTo(key, host, cwd);
 }
 
+// Called when a pane's WebSocket closes for good (the bridge already
+// freed its own pane/queue state). Prune the daemon-side per-key Maps so
+// they don't grow for the life of the daemon — but ONLY when no live
+// session owns this key. A session is deliberately kept alive across a
+// transient disconnect (it resumes on reconnect with the same stable
+// key); its own `finally` clears `sessions` when its loop actually ends.
+function onPaneClose(key) {
+  if (!key || sessionFor(key)) return;
+  workspaceByKey.delete(key);
+  explicitWorkspaceKeys.delete(key);
+}
+
 // Called when a user message arrives from a pane, BEFORE it's queued.
 // Each pane has its OWN loop — independent of every other pane. If this
 // pane's loop is already live, do nothing (its userMessageStream will
@@ -310,6 +322,7 @@ const bridge = createBridge({
   allowedOrigins: [HTTP_ORIGIN],
   onHello: (key, host, doc) => onPaneConnect(key, host, doc),
   onUserMessage: (key, host) => ensureLoopForMessage(key, host),
+  onClose: (key) => onPaneClose(key),
   extraHandlers: {
     pick_path: async (msg, reply) => {
       try {
