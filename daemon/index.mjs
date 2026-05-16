@@ -10,6 +10,7 @@ import { createOfficeBridgeMcp } from "./office-tools.mjs";
 import { resolveWorkspaceRoot, suggestWorkspaceRoot, ensureWorkspaceMarker } from "./workspace.mjs";
 import { randomUUID } from "node:crypto";
 import { getSessionForFolder, saveSessionForFolder, touchFolder, getRecentFolders, forgetFolder } from "./sessions.mjs";
+import { readTranscript } from "./transcript.mjs";
 import { getContextEntries, setContextEntries } from "./context.mjs";
 import { stat } from "node:fs/promises";
 
@@ -153,6 +154,41 @@ function pickPathFromMain({ include_files, default_path, title, button_label }) 
 // getCurrentCwd without hitting a TDZ on this binding.
 let currentSession = null; // { cwd, sessionId, abortController, settled }
 
+// Resolve the session id to replay. Prefer the live session's id (set once
+// the SDK reports init); fall back to the id persisted for the current cwd
+// (covers the window before the SDK has re-inited on a fresh launch).
+async function resolveReplaySessionId() {
+  if (currentSession?.sessionId) return currentSession.sessionId;
+  const cwd = getCurrentCwd();
+  if (!cwd) return null;
+  try {
+    const saved = await getSessionForFolder(cwd);
+    return saved?.session_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Reconstruct the prior conversation from the resumed session's .jsonl and
+// push it to the taskpane. Sent on every taskpane hello and after each
+// workspace switch (cwd_changed). Empty events => fresh chat, no divider.
+async function sendTranscriptReplay() {
+  try {
+    const sessionId = await resolveReplaySessionId();
+    const { events, truncated } = sessionId
+      ? await readTranscript(sessionId, { maxEvents: 200 })
+      : { events: [], truncated: false };
+    bridge.sendToTaskpane({
+      type: "transcript_replay",
+      session_id: sessionId ?? null,
+      truncated,
+      events,
+    });
+  } catch (err) {
+    console.warn("[daemon] transcript replay failed:", err?.message ?? err);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket bridge.
 // ---------------------------------------------------------------------------
@@ -160,6 +196,7 @@ const bridge = createBridge({
   port: WS_PORT,
   token: BRIDGE_TOKEN,
   allowedOrigins: [HTTP_ORIGIN],
+  onHello: () => sendTranscriptReplay(),
   extraHandlers: {
     pick_path: async (msg, reply) => {
       try {
@@ -531,6 +568,9 @@ async function startSessionForFolder(cwd, resumeSessionId = null) {
     (resumeSessionId ? ` (resuming ${resumeSessionId.slice(0, 8)}…)` : " (new session)")
   );
   bridge.sendAssistantEvent({ event: "cwd_changed", cwd, resumed: !!resumeSessionId });
+  // Replay the new workspace's transcript so the panel reflects the
+  // workspace you just switched to (not the previous one's chat).
+  sendTranscriptReplay().catch(() => {});
 
   // Re-read the drafting setup append fresh each session start.
   const append = await buildSystemPromptAppend();

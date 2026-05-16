@@ -260,6 +260,49 @@ function appendToolUse(name, args) {
   assistantTurnElem = null;
 }
 
+// A complete assistant bubble (replay path — full text, not streamed
+// deltas). Resets assistantTurnElem so a subsequent live delta starts a
+// fresh bubble rather than appending onto a replayed one.
+function appendAssistantMessage(text) {
+  const el = document.createElement("div");
+  el.className = "msg assistant";
+  el.textContent = text;
+  $messages.appendChild(el);
+  $messages.scrollTop = $messages.scrollHeight;
+  assistantTurnElem = null;
+}
+
+// Rebuild the chat panel from a replayed transcript. Clears whatever is in
+// #messages, renders each event through the same bubble helpers the live
+// path uses (so the diagnostics CSS gate applies identically), and — only
+// when there is prior history — appends a divider so replayed history is
+// visually distinct from the live session that follows.
+function renderTranscriptReplay(events, truncated) {
+  $messages.innerHTML = "";
+  assistantTurnElem = null;
+
+  if (truncated) {
+    const t = document.createElement("div");
+    t.className = "transcript-truncated";
+    t.textContent = "⋯ earlier messages not shown";
+    $messages.appendChild(t);
+  }
+
+  for (const ev of events) {
+    if (ev.kind === "user") appendUserMessage(ev.text);
+    else if (ev.kind === "assistant") appendAssistantMessage(ev.text);
+    else if (ev.kind === "tool") appendToolUse(ev.name, ev.input);
+  }
+
+  if (events.length > 0) {
+    const d = document.createElement("div");
+    d.className = "transcript-divider";
+    d.textContent = "end of earlier conversation";
+    $messages.appendChild(d);
+    $messages.scrollTop = $messages.scrollHeight;
+  }
+}
+
 function refreshSelectionChip() {
   if (attachSelection && lastSelection && lastSelection.text) {
     const preview = lastSelection.text.length > 60
@@ -405,6 +448,10 @@ async function handleServerMessage(msg) {
       setConnectionStatus("ok", "Connected");
       setAgentStatus("idle", "Ready");
       refreshWorkspaceFromDaemon();
+      break;
+
+    case "transcript_replay":
+      renderTranscriptReplay(msg.events || [], !!msg.truncated);
       break;
 
     case "assistant_text":
