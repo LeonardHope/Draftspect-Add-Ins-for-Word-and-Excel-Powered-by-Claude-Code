@@ -12,6 +12,19 @@ import { join, resolve as resolvePath } from "node:path";
 
 const BEGIN = "<!-- CONTEXT-FILES:BEGIN -->";
 const END = "<!-- CONTEXT-FILES:END -->";
+
+// Locate a marker, but only when it occupies its own line (optionally
+// indented). setContextEntries always writes the markers on their own
+// lines, so this is backward-compatible — and it stops a literal mention
+// of the marker string *inside prose or a fenced code block* in the user's
+// CLAUDE.md from being treated as the real delimiter (a substring
+// indexOf would). Returns the index of the marker text (so existing
+// slice math is unchanged), or -1.
+function locateMarker(content, marker) {
+  const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = new RegExp(`^[ \\t]*${escaped}[ \\t]*$`, "m").exec(content);
+  return m ? m.index + m[0].indexOf(marker) : -1;
+}
 const PREAMBLE =
   "The following folders and files are background context the user has " +
   "added for this workspace. Read them on demand — when the user's request " +
@@ -85,8 +98,8 @@ async function validate(entries) {
 export async function getContextEntries(cwd) {
   if (!cwd) return [];
   const content = await readClaudeMd(cwd);
-  const start = content.indexOf(BEGIN);
-  const end = content.indexOf(END);
+  const start = locateMarker(content, BEGIN);
+  const end = locateMarker(content, END);
   if (start === -1 || end === -1 || end < start) return [];
   return parseBlock(content.slice(start + BEGIN.length, end));
 }
@@ -107,8 +120,8 @@ export async function setContextEntries(cwd, entries) {
   const newBlock = lines.join("\n");
 
   let content = await readClaudeMd(cwd);
-  const start = content.indexOf(BEGIN);
-  const end = content.indexOf(END);
+  const start = locateMarker(content, BEGIN);
+  const end = locateMarker(content, END);
   if (start !== -1 && end !== -1 && end > start) {
     content = content.slice(0, start) + newBlock + content.slice(end + END.length);
   } else if (content.length === 0) {
