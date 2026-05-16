@@ -50,14 +50,3 @@ node --check daemon/index.mjs taskpane/shared/taskpane.js app/main.mjs
 
 - `README.md` — user-facing install/usage/troubleshooting docs.
 - Memories under `~/.claude/projects/-Users-leonard-Projects-Claude-Code-Add-Ins-for-Word-and-Excel/memory/` — non-obvious constraints, Office.js gotchas, SDK behavior notes.
-
-<!-- CONTEXT-FILES:BEGIN -->
-
-The following folders and files are background context the user has added for this workspace. Read them on demand — when the user's request involves a topic, term, or document name that one of these entries looks relevant to, use `Read` / `Glob` / `Grep` to consult them before answering.
-
-- (file) `/Users/leonard/Projects/Claude Code Add-Ins for Word and Excel/examples/word-demo/style-guide.md`
-- (file) `/Users/leonard/Projects/Claude Code Add-Ins for Word and Excel/examples/excel-demo/q3-sales.csv`
-
-Each entry below is annotated with its kind (folder or file). Folder entries should be globbed when relevant. File entries are individual documents to read directly. Do not modify any of these files unless the user explicitly asks you to.
-
-<!-- CONTEXT-FILES:END -->
