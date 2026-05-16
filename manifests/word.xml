@@ -6,13 +6,13 @@
   xsi:type="TaskPaneApp">
 
   <Id>27ee7761-18ca-4fae-b482-4171d5afa6cd</Id>
-  <Version>0.1.1.0</Version>
+  <Version>0.1.2.0</Version>
   <ProviderName>Local Dev</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Claude Code for Word" />
   <Description DefaultValue="Bring your local Claude Code into Word. Read and edit the active document; pull in context files from your workspace." />
   <IconUrl DefaultValue="http://127.0.0.1:47824/icon-32.png" />
-  <HighResolutionIconUrl DefaultValue="http://127.0.0.1:47824/icon-80.png" />
+  <HighResolutionIconUrl DefaultValue="http://127.0.0.1:47824/icon-64.png" />
   <SupportUrl DefaultValue="http://127.0.0.1:47824/" />
 
   <AppDomains>

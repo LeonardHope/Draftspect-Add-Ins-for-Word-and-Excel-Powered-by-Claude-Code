@@ -6,13 +6,13 @@
   xsi:type="TaskPaneApp">
 
   <Id>4b5861d6-18ee-4d4a-b9ee-d43d7da80ff4</Id>
-  <Version>0.1.1.0</Version>
+  <Version>0.1.2.0</Version>
   <ProviderName>Local Dev</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Claude Code for Excel" />
   <Description DefaultValue="Bring your local Claude Code into Excel. Read and edit the active workbook; pull in context files from your workspace." />
   <IconUrl DefaultValue="http://127.0.0.1:47824/icon-32.png" />
-  <HighResolutionIconUrl DefaultValue="http://127.0.0.1:47824/icon-80.png" />
+  <HighResolutionIconUrl DefaultValue="http://127.0.0.1:47824/icon-64.png" />
   <SupportUrl DefaultValue="http://127.0.0.1:47824/" />
 
   <AppDomains>
