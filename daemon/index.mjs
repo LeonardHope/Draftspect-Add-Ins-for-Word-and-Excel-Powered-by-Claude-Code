@@ -184,6 +184,18 @@ const workspaceByKey = new Map();
 // Panes whose workspace the user set explicitly (Change workspace). Their
 // workspace must NOT be re-derived from the document folder on reconnect.
 const explicitWorkspaceKeys = new Set();
+// Per-pane sticky model choice (set by the taskpane composer). The SDK
+// model is fixed per agent loop, so a change while a loop is live triggers
+// a resuming restart (see the set_model handler).
+const modelByKey = new Map();
+const ALLOWED_MODELS = new Set(["haiku", "sonnet", "opus", "default"]);
+
+// The `model` value to pass to query(): the alias for haiku/sonnet/opus,
+// or null to defer to the Claude Code CLI's own configured default.
+function modelArgFor(key) {
+  const m = modelByKey.get(key);
+  return m && m !== "default" ? m : null;
+}
 
 function sessionFor(key) {
   return sessions.get(key) ?? null;
@@ -315,6 +327,7 @@ function onPaneClose(key) {
   workspaceByKey.delete(key);
   explicitWorkspaceKeys.delete(key);
   loopRestartByKey.delete(key);
+  modelByKey.delete(key);
 }
 
 // Called when a user message arrives from a pane, BEFORE it's queued.
@@ -475,6 +488,23 @@ const bridge = createBridge({
           error: e.message,
           request_id: msg.request_id,
         });
+      }
+    },
+    set_model: async (msg, reply, key, host) => {
+      const requested = String(msg.model || "").trim();
+      const model = ALLOWED_MODELS.has(requested) ? requested : "sonnet";
+      const prev = modelByKey.get(key);
+      modelByKey.set(key, model);
+      reply({ type: "set_model_result", ok: true, model, request_id: msg.request_id });
+      // Only relaunch if the model actually changed for an already-known
+      // pane. On the initial connect `prev` is undefined (no live session
+      // yet — the lazy first-message start will read modelByKey), so we
+      // just record it. restartSession itself no-ops when no session.
+      if (prev !== undefined && prev !== model) {
+        console.log(`[daemon] model changed → ${model} (key bound); restarting loop`);
+        restartSession(key, host, { reason: "model_changed" }).catch((err) =>
+          console.warn("[daemon] restart after model change failed:", err.message),
+        );
       }
     },
     set_context: async (msg, reply, key, host) => {
@@ -879,6 +909,9 @@ async function startSessionForFolder(
           disallowedTools: WORD_MCP_DISALLOWED,
           canUseTool: customPermissionHandler,
           includePartialMessages: true,
+          // User-chosen model (composer dropdown). Omitted entirely for
+          // "default" so the Claude Code CLI's own model config wins.
+          ...(modelArgFor(key) ? { model: modelArgFor(key) } : {}),
           abortController,
           // Surface the SDK CLI's stderr (MCP connect failures, internal
           // warnings, etc.) in our daemon log. Also sniff it for

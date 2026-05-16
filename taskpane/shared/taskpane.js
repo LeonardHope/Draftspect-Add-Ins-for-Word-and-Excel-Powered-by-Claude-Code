@@ -353,6 +353,9 @@ function defaultSettings() {
   return {
     showDiagnostics: false,
     trackChangesMode: "always", // "always" | "modifications" | "never"
+    // Global, sticky. Cheaper models use less of your monthly Claude
+    // programmatic credit. "default" defers to the Claude Code CLI config.
+    model: "sonnet", // "haiku" | "sonnet" | "opus" | "default"
   };
 }
 
@@ -382,6 +385,15 @@ function applySettings() {
   if ($showDiag) $showDiag.checked = settings.showDiagnostics;
   const $tcMode = document.getElementById("setting-track-changes-mode");
   if ($tcMode) $tcMode.value = settings.trackChangesMode || "always";
+  const $model = document.getElementById("composer-model");
+  if ($model) $model.value = settings.model || "sonnet";
+}
+
+// Push the chosen model to the daemon. The SDK model is fixed per agent
+// loop, so changing it mid-conversation triggers a resuming restart
+// (daemon side); on first connect it's just recorded for the lazy start.
+function sendModel() {
+  if (wsReady) wsSend({ type: "set_model", model: settings.model || "sonnet" });
 }
 
 document.getElementById("setting-show-diagnostics").addEventListener("change", (e) => {
@@ -401,6 +413,13 @@ document.getElementById("setting-track-changes-mode")?.addEventListener("change"
   }
 });
 
+document.getElementById("composer-model")?.addEventListener("change", (e) => {
+  settings.model = e.target.value;
+  saveSettings(settings);
+  applySettings();
+  sendModel();
+});
+
 applySettings();
 
 // ---------------------------------------------------------------------------
@@ -413,6 +432,9 @@ function wsConnect() {
   ws.onopen = () => {
     wsReady = true;
     sendHello();
+    // Record the sticky model for this pane key right after the hello
+    // binds it, so the lazy first-message session start uses it.
+    sendModel();
   };
 
   ws.onclose = () => {
