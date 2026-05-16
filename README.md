@@ -9,6 +9,16 @@ The headline feature: **point Claude at any folders or files on your machine** �
 
 Everything runs on your computer; only API calls go to Anthropic.
 
+## What it looks like
+
+**Word** — surgical, tracked edits and margin comments, driven from the side pane:
+
+![Claude Code for Word — tracked changes and comments in a document](docs/images/word-demo.png)
+
+**Excel** — reads and writes ranges, adds live `=SUM()` formulas, finds and selects cells:
+
+![Claude Code for Excel — a sales sheet with a formula-driven total row](docs/images/excel-demo.png)
+
 ---
 
 ## Status
