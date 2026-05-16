@@ -250,12 +250,52 @@ async function sendTranscriptReplayTo(key, host, cwd) {
 // sessions.get(key)), so startSessionForFolder builds cleanly. Every
 // path that (re)starts a pane's session — first message, post-stream-end,
 // post-Stop — funnels through here; `reason` only flavors the failure log.
+// Per-key serialization + coalescing of (re)starts. Every restart trigger —
+// first message, post-Stop, post-stream-end, model/context change, workspace
+// switch — funnels through here. startSessionForFolder aborts whatever
+// session is current for the key, so if several triggers fire close together
+// (e.g. "slow first turn → Stop → switch model → resend") their setImmediate
+// callbacks used to interleave: each abort killed the next start before it
+// could `init`, leaving an orphaned loop with no consumer (the Excel hang).
+//
+// Now each key has a single-flight runner. While a start is in progress,
+// later requests only overwrite `latest` — intermediate restarts collapse,
+// and exactly one final start runs to completion uncontested, so it always
+// reaches `init`.
+const startQueue = new Map(); // key -> { running: boolean, latest: req | null }
+
 function scheduleSessionStart(cwd, sessionId, key, host, reason, { replay = true } = {}) {
-  setImmediate(() => {
-    startSessionForFolder(cwd, sessionId, { key, host: host ?? null, replay }).catch((err) =>
-      console.error(`[daemon] ${reason} session start failed:`, err?.message ?? err),
-    );
-  });
+  let q = startQueue.get(key);
+  if (!q) {
+    q = { running: false, latest: null };
+    startQueue.set(key, q);
+  }
+  q.latest = { cwd, resumeId: sessionId, host: host ?? null, reason, replay };
+  if (q.running) return; // the active runner will pick up `latest`
+  q.running = true;
+  setImmediate(() => runStartQueue(key));
+}
+
+async function runStartQueue(key) {
+  const q = startQueue.get(key);
+  if (!q) return;
+  // startSessionForFolder returns once setup is done (it kicks the agent
+  // loop off detached), so awaiting it serializes only the abort+create
+  // step — exactly the part that must not interleave.
+  while (q.latest) {
+    const req = q.latest;
+    q.latest = null;
+    try {
+      await startSessionForFolder(req.cwd, req.resumeId, {
+        key,
+        host: req.host,
+        replay: req.replay,
+      });
+    } catch (err) {
+      console.error(`[daemon] ${req.reason} session start failed:`, err?.message ?? err);
+    }
+  }
+  q.running = false;
 }
 
 // Backoff for the post-stream-end auto-restart. When the SDK stream dies
@@ -329,6 +369,7 @@ function onPaneClose(key) {
   explicitWorkspaceKeys.delete(key);
   loopRestartByKey.delete(key);
   modelByKey.delete(key);
+  startQueue.delete(key);
 }
 
 // Called when a user message arrives from a pane, BEFORE it's queued.
@@ -1030,7 +1071,10 @@ async function restartSession(key, host, { reason = "config_changed" } = {}) {
   const { cwd, sessionId } = s;
   console.log(`[daemon] Restarting session for ${cwd} (reason: ${reason})`);
   bridge.sendAssistantEvent({ event: "config_reloaded", reason }, key);
-  await startSessionForFolder(cwd, sessionId, { key, host });
+  // Funnel through the serialized per-key queue (not a direct
+  // startSessionForFolder) so a config/model restart coalesces with any
+  // concurrent post-Stop / first-message start instead of racing it.
+  scheduleSessionStart(cwd, sessionId, key, host, reason, { replay: false });
 }
 
 function handleAgentMessage(msg, session) {
