@@ -637,7 +637,7 @@ function customPermissionHandler(toolName, input) {
 // We also prepend a context header to each turn so the agent always knows the
 // active doc and selection without having to call office_get_doc_info first.
 // ---------------------------------------------------------------------------
-async function* userMessageStream(host) {
+async function* userMessageStream(host, session) {
   while (true) {
     let msg;
     try {
@@ -647,6 +647,10 @@ async function* userMessageStream(host) {
       // the underlying query() iterator can shut down without a stray error.
       return;
     }
+    // A turn is now in flight for this session. Cleared when we emit a
+    // turn_complete (result / stream-ended / stop / error). Lets a
+    // cross-host supersede know it must release the outgoing pane.
+    if (session) session.turnActive = true;
     const { text, context } = msg;
     const header = renderContextHeader(context);
     const content = header ? `${header}\n\n${text}` : text;
@@ -713,8 +717,18 @@ async function startSessionForFolder(
   // we're switching TO (the lazy-start trigger) must survive to be
   // consumed by the loop we're about to build.
   if (currentSession) {
-    currentSession.abortController.abort();
-    bridge.clearUserMessages(currentSession.host);
+    const prev = currentSession;
+    prev.abortController.abort();
+    bridge.clearUserMessages(prev.host);
+    // Swapping the single loop to a DIFFERENT host abandons `prev`'s
+    // loop. If it had a turn in flight, its pane is pinned to
+    // "Working…/Writing cells…" and nothing else will ever release it
+    // (the abort path only notifies on a user Stop or same session).
+    // Tell that pane its turn is over so it returns to Ready.
+    if (prev.host && prev.host !== host && prev.turnActive && !prev.settled) {
+      prev.turnActive = false;
+      bridge.sendAssistantEvent({ event: "turn_complete", interrupted: true }, prev.host);
+    }
   }
 
   const abortController = new AbortController();
@@ -723,6 +737,7 @@ async function startSessionForFolder(
     sessionId: resumeSessionId,
     abortController,
     settled: false,
+    turnActive: false,
     host,
   };
   currentSession = session;
@@ -778,7 +793,7 @@ async function startSessionForFolder(
   (async () => {
     try {
       for await (const msg of query({
-        prompt: userMessageStream(host),
+        prompt: userMessageStream(host, session),
         options: {
           cwd,
           systemPrompt: {
@@ -815,6 +830,7 @@ async function startSessionForFolder(
       // (so it leaves "Working…") and auto-restart the loop so the next
       // message has a live consumer (same rationale as the Stop path).
       if (currentSession === session && !sawResult && !session.interrupted) {
+        session.turnActive = false;
         const friendly = rateLimitHint
           ? `Claude usage limit reached. ${rateLimitHint}`
           : "The agent stopped unexpectedly — this is usually a Claude usage limit. Wait for your limit to reset, or set ANTHROPIC_API_KEY to use an API key.";
@@ -835,11 +851,13 @@ async function startSessionForFolder(
         // currentSession first (via setImmediate); the fresh
         // startSessionForFolder then builds cleanly.
         if (currentSession === session && session.interrupted) {
+          session.turnActive = false;
           bridge.sendAssistantEvent({ event: "turn_complete", interrupted: true }, host);
           const { cwd: rcwd, sessionId: rsid, host: rhost } = session;
           scheduleSessionStart(rcwd, rsid, rhost, "post-stop");
         }
       } else if (currentSession === session) {
+        session.turnActive = false;
         console.error("[daemon] Agent loop crashed:", err);
         // Detect auth failures and surface them as a distinct event so the
         // taskpane can show a recoverable banner ("sign in to Claude Code")
@@ -958,6 +976,7 @@ function handleAgentMessage(msg, session = currentSession) {
     }
     case "result": {
       console.log(`[agent] turn complete (${msg.subtype})`);
+      if (session) session.turnActive = false;
       bridge.sendAssistantEvent({ event: "turn_complete", subtype: msg.subtype }, session?.host);
       break;
     }
