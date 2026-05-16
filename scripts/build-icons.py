@@ -58,6 +58,10 @@ def make(size: int, out: Path) -> None:
 
 
 if __name__ == "__main__":
+    # 32 = IconUrl, 64 = HighResolutionIconUrl. These are the sizes the
+    # Office manifest spec documents; an off-spec size (we used to ship 80)
+    # can make Office reject the high-res icon and fall back to a blank
+    # tile.
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     make(32, OUT_DIR / "icon-32.png")
-    make(80, OUT_DIR / "icon-80.png")
+    make(64, OUT_DIR / "icon-64.png")
