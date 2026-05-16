@@ -365,6 +365,11 @@ body {
   cursor: pointer;
   font-size: 13px;
 }
+/* Breathing room between stacked settings — without this the help text
+   of one setting runs straight into the next control. */
+.setting-row + .setting-row {
+  margin-top: 16px;
+}
 .setting-row input[type="checkbox"] {
   margin-top: 2px;
   cursor: pointer;
@@ -1031,19 +1036,4 @@ body {
 }
 .path-row input[type="text"] {
   flex: 1 1 100%;
-}
-
-.setup-footnote {
-  font-size: 11px;
-  color: var(--fg-muted);
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
-  margin-top: 4px;
-  line-height: 1.5;
-}
-.setup-footnote code {
-  font-size: 11px;
-  background: var(--bubble-asst);
-  padding: 1px 4px;
-  border-radius: 3px;
 }
