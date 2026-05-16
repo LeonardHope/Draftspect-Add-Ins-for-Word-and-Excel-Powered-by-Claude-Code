@@ -1,9 +1,10 @@
-// Unit tests for daemon/workspace.mjs — workspace detection cascade.
+// Unit tests for daemon/workspace.mjs.
 //
-// resolveWorkspaceRoot is the strict, marker-driven path. suggestWorkspaceRoot
-// is the heuristic fallback used when no marker exists. ensureWorkspaceMarker
-// drops a seed CLAUDE.md on explicit user pick. Tests use a fresh tmpdir per
-// test so they don't touch each other or the user's real ~/.
+// New model: the workspace is simply the folder that directly contains the
+// open document — no walking up the tree, no marker search, no folder-name
+// heuristic. The single guard is "never $HOME / an OS-managed $HOME child /
+// the filesystem root". ensureWorkspaceMarker still drops a seed CLAUDE.md
+// on explicit user pick. Tests use a fresh tmpdir per test.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -21,96 +22,42 @@ async function makeTmp() {
   return await mkdtemp(join(tmpdir(), "cc-office-ws-test-"));
 }
 
-test("resolveWorkspaceRoot returns null when no marker anywhere up the tree", async () => {
+test("resolveWorkspaceRoot returns the document's own folder", async () => {
   const root = await makeTmp();
   try {
-    const sub = join(root, "a", "b");
+    const dir = join(root, "a", "b");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "doc.docx"), "");
+    assert.equal(await resolveWorkspaceRoot(join(dir, "doc.docx")), dir);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("resolveWorkspaceRoot does NOT walk up to ancestor markers (footgun fix)", async () => {
+  // The ~/Desktop/.claude footgun: a stray marker in an ancestor used to
+  // hijack the pick. Now the doc's own folder always wins.
+  const root = await makeTmp();
+  try {
+    const sub = join(root, "Test Folder");
     await mkdir(sub, { recursive: true });
+    await writeFile(join(root, "CLAUDE.md"), "# stray\n");
+    await mkdir(join(root, ".claude"));
+    await mkdir(join(root, ".git"));
     await writeFile(join(sub, "doc.docx"), "");
-    const got = await resolveWorkspaceRoot(join(sub, "doc.docx"));
-    // No marker, no .git → null.
-    assert.equal(got, null);
+    // Returns the doc's folder, not `root` (where the markers are).
+    assert.equal(await resolveWorkspaceRoot(join(sub, "doc.docx")), sub);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("resolveWorkspaceRoot stops at the CLAUDE.md marker", async () => {
+test("resolveWorkspaceRoot returns the directory itself when handed a dir path", async () => {
   const root = await makeTmp();
   try {
-    const ws = join(root, "ws");
-    const sub = join(ws, "drafts");
-    await mkdir(sub, { recursive: true });
-    await writeFile(join(ws, "CLAUDE.md"), "# workspace\n");
-    await writeFile(join(sub, "doc.docx"), "");
-    const got = await resolveWorkspaceRoot(join(sub, "doc.docx"));
-    assert.equal(got, ws);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("resolveWorkspaceRoot stops at the .claude marker (file or dir)", async () => {
-  const root = await makeTmp();
-  try {
-    const ws = join(root, "ws");
-    const sub = join(ws, "drafts");
-    await mkdir(sub, { recursive: true });
-    await mkdir(join(ws, ".claude")); // dir variant
-    await writeFile(join(sub, "doc.docx"), "");
-    const got = await resolveWorkspaceRoot(join(sub, "doc.docx"));
-    assert.equal(got, ws);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("resolveWorkspaceRoot returns the git root when .git is found (not its child)", async () => {
-  // Regression test for the prevDir bug: doc nested in a git repo used to
-  // return the directory just below .git instead of the repo root.
-  const root = await makeTmp();
-  try {
-    const repo = join(root, "repo");
-    const docDir = join(repo, "docs");
-    await mkdir(docDir, { recursive: true });
-    await mkdir(join(repo, ".git"));
-    await writeFile(join(docDir, "spec.docx"), "");
-    const got = await resolveWorkspaceRoot(join(docDir, "spec.docx"));
-    assert.equal(got, repo);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("resolveWorkspaceRoot returns the git root when the doc is at the repo root", async () => {
-  // Regression test: doc directly in a git repo used to return null because
-  // prevDir was still null on the first iteration.
-  const root = await makeTmp();
-  try {
-    const repo = join(root, "repo");
-    await mkdir(repo);
-    await mkdir(join(repo, ".git"));
-    await writeFile(join(repo, "spec.docx"), "");
-    const got = await resolveWorkspaceRoot(join(repo, "spec.docx"));
-    assert.equal(got, repo);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("resolveWorkspaceRoot prefers CLAUDE.md over .git when both present", async () => {
-  // Markers have priority. If a user dropped a CLAUDE.md in a subfolder of a
-  // git repo, that subfolder is the workspace, not the repo root.
-  const root = await makeTmp();
-  try {
-    const repo = join(root, "repo");
-    const sub = join(repo, "matter");
-    await mkdir(sub, { recursive: true });
-    await mkdir(join(repo, ".git"));
-    await writeFile(join(sub, "CLAUDE.md"), "");
-    await writeFile(join(sub, "spec.docx"), "");
-    const got = await resolveWorkspaceRoot(join(sub, "spec.docx"));
-    assert.equal(got, sub);
+    const dir = join(root, "ws");
+    await mkdir(dir, { recursive: true });
+    assert.equal(await resolveWorkspaceRoot(dir), dir);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -121,74 +68,71 @@ test("resolveWorkspaceRoot handles file:// URLs (POSIX)", async () => {
   try {
     const ws = join(root, "ws");
     await mkdir(ws, { recursive: true });
-    await writeFile(join(ws, "CLAUDE.md"), "");
     const docPath = join(ws, "doc.docx");
     await writeFile(docPath, "");
-    const fileUrl = "file://" + docPath;
-    const got = await resolveWorkspaceRoot(fileUrl);
-    assert.equal(got, ws);
+    assert.equal(await resolveWorkspaceRoot("file://" + docPath), ws);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
 test("resolveWorkspaceRoot returns null for non-file:// URLs (cloud docs)", async () => {
-  // SharePoint / OneDrive URLs are not filesystem paths.
   const got = await resolveWorkspaceRoot("https://contoso.sharepoint.com/sites/x/spec.docx");
   assert.equal(got, null);
 });
 
-test("suggestWorkspaceRoot falls back to docDir when no marker", async () => {
+test("resolveWorkspaceRoot returns null when the doc sits in an OS-managed $HOME child", async () => {
+  if (process.platform !== "darwin") return; // deny-list is macOS-specific
+  const fakeHome = await mkdtemp(join(tmpdir(), "cc-office-ws-home-"));
+  const prevHome = process.env.HOME;
+  const prevUserProfile = process.env.USERPROFILE;
+  process.env.HOME = fakeHome;
+  process.env.USERPROFILE = fakeHome;
+  try {
+    const lib = join(fakeHome, "Library");
+    await mkdir(lib, { recursive: true });
+    await writeFile(join(lib, "doc.docx"), "");
+    // Re-import with the faked HOME (workspace.mjs reads homedir() at load).
+    const mod = await import("../daemon/workspace.mjs?home=" + Date.now() + Math.random());
+    assert.equal(await mod.resolveWorkspaceRoot(join(lib, "doc.docx")), null);
+  } finally {
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    if (prevUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = prevUserProfile;
+    await rm(fakeHome, { recursive: true, force: true });
+  }
+});
+
+test("suggestWorkspaceRoot returns the doc folder with confidence 'doc'", async () => {
   const root = await makeTmp();
   try {
     const ws = join(root, "ws");
     await mkdir(ws, { recursive: true });
     await writeFile(join(ws, "doc.docx"), "");
-    const got = await suggestWorkspaceRoot(join(ws, "doc.docx"));
-    assert.deepEqual(got, { cwd: ws, confidence: "heuristic" });
+    assert.deepEqual(await suggestWorkspaceRoot(join(ws, "doc.docx")), {
+      cwd: ws,
+      confidence: "doc",
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("suggestWorkspaceRoot reports marker confidence when one exists", async () => {
-  const root = await makeTmp();
-  try {
-    const ws = join(root, "ws");
-    await mkdir(ws, { recursive: true });
-    await writeFile(join(ws, "CLAUDE.md"), "");
-    await writeFile(join(ws, "doc.docx"), "");
-    const got = await suggestWorkspaceRoot(join(ws, "doc.docx"));
-    assert.deepEqual(got, { cwd: ws, confidence: "marker" });
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
+test("suggestWorkspaceRoot returns null for cloud URLs", async () => {
+  assert.equal(
+    await suggestWorkspaceRoot("https://contoso.sharepoint.com/sites/x/spec.docx"),
+    null,
+  );
 });
 
-test("suggestWorkspaceRoot bumps up one level when doc lives in a drafts-like folder", async () => {
-  const root = await makeTmp();
-  try {
-    const ws = join(root, "matter");
-    const draftsDir = join(ws, "Drafts");
-    await mkdir(draftsDir, { recursive: true });
-    await writeFile(join(draftsDir, "doc.docx"), "");
-    const got = await suggestWorkspaceRoot(join(draftsDir, "doc.docx"));
-    assert.deepEqual(got, { cwd: ws, confidence: "heuristic" });
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("ensureWorkspaceMarker drops a CLAUDE.md when none exists", async () => {
+test("ensureWorkspaceMarker drops a CLAUDE.md when none exists, then no-ops", async () => {
   const root = await makeTmp();
   try {
     const ws = join(root, "ws");
     await mkdir(ws);
-    const created = await ensureWorkspaceMarker(ws);
-    assert.equal(created, true);
-    const second = await ensureWorkspaceMarker(ws);
-    // Second call is a no-op since the marker now exists.
-    assert.equal(second, false);
+    assert.equal(await ensureWorkspaceMarker(ws), true);
+    assert.equal(await ensureWorkspaceMarker(ws), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -200,8 +144,7 @@ test("ensureWorkspaceMarker does nothing when .claude already exists", async () 
     const ws = join(root, "ws");
     await mkdir(ws);
     await mkdir(join(ws, ".claude"));
-    const created = await ensureWorkspaceMarker(ws);
-    assert.equal(created, false);
+    assert.equal(await ensureWorkspaceMarker(ws), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

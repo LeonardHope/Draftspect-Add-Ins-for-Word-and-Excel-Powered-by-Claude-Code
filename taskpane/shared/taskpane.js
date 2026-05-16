@@ -1542,9 +1542,11 @@ async function loadWorkspaceSection() {
 
 // Banner controller: shown when the active Word doc lives outside the
 // current workspace and the daemon has a candidate workspace root to suggest.
-// When confidence=marker AND autoSwitchWorkspace is on, we skip the banner
-// and fire the switch directly (the user previously committed to that
-// folder by dropping a marker; no reason to ask again).
+// The daemon's suggestion is the doc's own folder (confidence "doc",
+// deterministic). When autoSwitchWorkspace is on we skip the banner and
+// switch straight to it — there's nothing to confirm; it's just "where
+// this document lives". The banner only appears as a manual fallback if
+// the user turned auto-switch off.
 async function refreshWorkspaceSuggestBanner() {
   pendingWorkspaceSuggestion = null;
   $workspaceSuggest.hidden = true;
@@ -1565,7 +1567,7 @@ async function refreshWorkspaceSuggestBanner() {
   }
   if (!suggestion) return;
 
-  if (suggestion.confidence === "marker" && settings.autoSwitchWorkspace) {
+  if (suggestion.confidence === "doc" && settings.autoSwitchWorkspace) {
     doSwitch(null, { autodetectFromDoc: true });
     return;
   }
