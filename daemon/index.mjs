@@ -616,10 +616,22 @@ await preflightHttpMcpServers(userMcpServers);
 // ---------------------------------------------------------------------------
 // System prompt: Claude Code default + Office-specific append.
 // ---------------------------------------------------------------------------
-// Re-read system-prompt.md fresh on every session start so edits take effect
-// immediately when a session restarts (no daemon restart required).
-async function buildSystemPromptAppend() {
-  return await readFile(join(__dirname, "system-prompt.md"), "utf8");
+// Shared base + the active host's section only. An Excel session never
+// carries Word's surgical-edit / paragraph-reference rules (pure noise
+// for it) and vice-versa. Re-read fresh on every session start so edits
+// take effect when a session restarts (no daemon restart required).
+async function buildSystemPromptAppend(host) {
+  const base = await readFile(join(__dirname, "system-prompt.md"), "utf8");
+  const files = host === "excel" ? ["system-prompt-excel.md"] : ["system-prompt-word.md"];
+  // Degraded pre-bind case (host null) shouldn't happen now that sessions
+  // start per pane, but fall back to including both to stay safe.
+  if (host !== "word" && host !== "excel") {
+    files.length = 0;
+    files.push("system-prompt-word.md", "system-prompt-excel.md");
+  }
+  const parts = [base];
+  for (const f of files) parts.push(await readFile(join(__dirname, f), "utf8"));
+  return parts.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -804,7 +816,7 @@ async function startSessionForFolder(
   if (replay) sendTranscriptReplayTo(key, host, cwd).catch(() => {});
 
   // Re-read the drafting setup append fresh each session start.
-  const append = await buildSystemPromptAppend();
+  const append = await buildSystemPromptAppend(host);
 
   // Did this turn see a proper `result` message before the stream ended?
   // The SDK ends the stream with a `result` on normal completion. On a
