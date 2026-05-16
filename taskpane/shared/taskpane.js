@@ -20,6 +20,7 @@ import {
   toolExcelFindValue,
   toolExcelInsertRows,
   toolExcelDeleteRows,
+  toolExcelSelectRange,
 } from "./tools-excel.js";
 import { isInOrUnder, docDirFromActiveUrl } from "./paths.js";
 
@@ -189,6 +190,7 @@ const TOOL_STATUS_LABELS = {
   excel_find_value: "Searching…",
   excel_insert_rows: "Inserting rows…",
   excel_delete_rows: "Deleting rows…",
+  excel_select_range: "Selecting cells…",
   // Common Claude Code tools
   Read: "Reading a file…",
   Write: "Writing a file…",
@@ -635,6 +637,9 @@ async function runOfficeTool(msg) {
         break;
       case "excel_delete_rows":
         result = await toolExcelDeleteRows(args);
+        break;
+      case "excel_select_range":
+        result = await toolExcelSelectRange(args);
         break;
       default:
         throw new Error(`Unknown tool: ${name}`);

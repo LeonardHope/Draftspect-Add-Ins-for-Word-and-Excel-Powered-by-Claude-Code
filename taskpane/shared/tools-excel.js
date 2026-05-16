@@ -238,3 +238,19 @@ export async function toolExcelDeleteRows({ sheet = null, at, count = 1 }) {
     return { sheet: activeName, deleted_at: at, count };
   });
 }
+
+export async function toolExcelSelectRange({ address, sheet = null }) {
+  if (!address || typeof address !== "string") {
+    throw new Error("`address` (an A1 range like 'B4' or 'A1:D9') is required.");
+  }
+  return await Excel.run(async (context) => {
+    const activeName = sheet || (await _activeSheetName(context));
+    const ws = context.workbook.worksheets.getItem(activeName);
+    ws.activate(); // make sure the selection is visible on the right sheet
+    const range = ws.getRange(address);
+    range.select();
+    range.load("address");
+    await context.sync();
+    return { sheet: activeName, address: range.address, selected: true };
+  });
+}
