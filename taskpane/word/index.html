@@ -86,8 +86,9 @@
         <div class="setup-section">
           <h3>Workspace</h3>
           <p class="setup-help">
-            The folder Claude works in — follows the open document automatically. Sets which
-            <code>CLAUDE.md</code>, context files, and chat history apply. Override with
+            The folder Claude works in — follows the open document automatically. Claude can already
+            read <em>anything inside it</em> on demand; this just sets which
+            <code>CLAUDE.md</code> and chat history apply. Override with
             <strong>Change workspace</strong>; it holds until you open a doc elsewhere.
           </p>
           <div class="current-workspace" id="workspace-cwd" title="">Loading…</div>
@@ -100,8 +101,9 @@
         <div class="setup-section">
           <h3>Context files</h3>
           <p class="setup-help">
-            Background files for this workspace — notes, prior drafts, references. Saved to its
-            <code>CLAUDE.md</code> and read on demand.
+            Point Claude at material <strong>outside</strong> the workspace folder — notes, prior
+            drafts, a vendor's specs, anywhere on disk. (Files <em>inside</em> the workspace it can
+            already read on its own.) Saved to <code>CLAUDE.md</code>; read on demand.
           </p>
           <div class="references-list" id="context-list">
             <div class="references-loading">Loading…</div>
