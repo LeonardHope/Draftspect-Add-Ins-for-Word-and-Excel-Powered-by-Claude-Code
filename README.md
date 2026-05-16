@@ -192,36 +192,48 @@ Presets are host-specific — Word and Excel each get their own set, editable in
 
 ### Word
 
-Ten tools, all through Office.js (no filesystem mutation of the live `.docx`):
+Seventeen tools, all through Office.js (no filesystem mutation of the live `.docx`):
 
-| Tool                        | Use it for                                              |
-| --------------------------- | ------------------------------------------------------- |
-| `office_get_selection`      | The implicit subject of "this", "here", "the selection" |
-| `office_read_paragraphs`    | Read by ID, heading section, or range                   |
-| `office_insert_paragraphs`  | Add new content after a paragraph or heading            |
-| `office_replace_paragraphs` | Whole-paragraph rewrites, 1-to-1                        |
-| `office_replace_section`    | Find a heading, replace its section                     |
-| `office_replace_text`       | Surgical sub-paragraph search/replace                   |
-| `office_highlight`          | Color-coded by severity: error/warning/info/uncertain   |
-| `office_clear_highlights`   | By paragraph, section, or all                           |
-| `office_add_comment`        | Anchored on a paragraph or specific text                |
-| `office_clear_comments`     | By paragraph, section, or all                           |
+| Tool                              | Use it for                                              |
+| --------------------------------- | ------------------------------------------------------- |
+| `office_get_selection`            | The implicit subject of "this", "here", "the selection" |
+| `office_read_paragraphs`          | Read by ID, heading section, or range                   |
+| `office_get_document_text`        | Whole-document text + word/character counts             |
+| `office_get_outline`              | The heading tree (id / level / text)                    |
+| `office_insert_paragraphs`        | Add new content after a paragraph or heading            |
+| `office_replace_paragraphs`       | Whole-paragraph rewrites, 1-to-1                        |
+| `office_replace_section`          | Find a heading, replace its section                     |
+| `office_replace_text`             | Surgical sub-paragraph search/replace                   |
+| `office_apply_style`              | Restyle existing paragraphs in place                    |
+| `office_set_font`                 | Bold / italic / underline, size, color, font name       |
+| `office_set_paragraph_formatting` | Alignment, indent, spacing                              |
+| `office_insert_table`             | Append a table, or insert one after a paragraph         |
+| `office_set_table_cell`           | Overwrite a cell in an existing table                   |
+| `office_highlight`                | Color-coded by severity: error/warning/info/uncertain   |
+| `office_clear_highlights`         | By paragraph, section, or all                           |
+| `office_add_comment`              | Anchored on a paragraph or specific text                |
+| `office_clear_comments`           | By paragraph, section, or all                           |
 
 Every write tool respects your track-changes setting.
 
 ### Excel
 
-Eight tools, A1 notation, 2D values arrays:
+Sixteen tools, A1 notation, 2D arrays:
 
-| Tool                                      | Use it for                                                         |
-| ----------------------------------------- | ------------------------------------------------------------------ |
-| `excel_get_selected_range`                | The implicit subject of "these cells"                              |
-| `excel_list_sheets`                       | Worksheet inventory + used ranges                                  |
-| `excel_read_range`                        | Read a range or a whole sheet's used range                         |
-| `excel_write_range`                       | Write a 2D values array (shape-checked); `=` writes a live formula |
-| `excel_find_value`                        | Substring / whole-cell match across one or all sheets              |
-| `excel_insert_rows` / `excel_delete_rows` | 1-based row indices                                                |
-| `excel_select_range`                      | Select a cell/range and switch to its sheet                        |
+| Tool                                                            | Use it for                                            |
+| --------------------------------------------------------------- | ----------------------------------------------------- |
+| `excel_get_selected_range`                                      | The implicit subject of "these cells"                 |
+| `excel_list_sheets`                                             | Worksheet inventory + used ranges                     |
+| `excel_read_range`                                              | Read a range or a whole sheet's used range            |
+| `excel_write_range`                                             | Write a 2D values array (shape-checked)               |
+| `excel_write_formula`                                           | Write a 2D array of formulas (e.g. `=SUM(A1:A9)`)     |
+| `excel_set_format`                                              | Number format, font, fill, borders                    |
+| `excel_find_value`                                              | Substring / whole-cell match across one or all sheets |
+| `excel_insert_rows` / `excel_delete_rows`                       | 1-based row indices                                   |
+| `excel_insert_columns` / `excel_delete_columns`                 | Column-letter addressed                               |
+| `excel_clear_range`                                             | Clear contents, formats, or both                      |
+| `excel_add_sheet` / `excel_delete_sheet` / `excel_rename_sheet` | Worksheet management                                  |
+| `excel_select_range`                                            | Select a cell/range and switch to its sheet           |
 
 ### What the agent will refuse
 
