@@ -126,3 +126,26 @@ test("setContextEntries on empty CLAUDE.md preserves no prior content but wraps 
     await rm(ws, { recursive: true, force: true });
   }
 });
+
+test("getContextEntries ignores the marker string when it's inline in prose / a fenced block", async () => {
+  const ws = await makeTmpWs();
+  try {
+    // The literal BEGIN marker appears inside a fenced code block (not as
+    // its own delimiter line) AND there is a real block further down. The
+    // line-anchored locator must match only the real one.
+    const real =
+      "<!-- CONTEXT-FILES:BEGIN -->\n\nP\n\n- (folder) `/tmp` — t\n\nQ\n\n<!-- CONTEXT-FILES:END -->";
+    const md =
+      "# Workspace\n\n" +
+      "Docs may mention the marker `<!-- CONTEXT-FILES:BEGIN -->` inline.\n\n" +
+      "```\n<!-- CONTEXT-FILES:BEGIN --> not a real delimiter here\n```\n\n" +
+      real + "\n";
+    await writeFile(join(ws, "CLAUDE.md"), md);
+    const got = await getContextEntries(ws);
+    assert.equal(got.length, 1);
+    assert.equal(got[0].path, "/tmp");
+    assert.equal(got[0].kind, "folder");
+  } finally {
+    await rm(ws, { recursive: true, force: true });
+  }
+});

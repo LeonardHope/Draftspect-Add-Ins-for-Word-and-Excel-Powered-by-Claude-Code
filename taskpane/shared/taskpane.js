@@ -1227,19 +1227,34 @@ function renderContext() {
   });
 }
 
+// In-pane error notice for the Context-files section. window.alert() works
+// on Mac Office but is flaky/blocked in web Office; show a dismissible
+// inline message in the Setup tab instead. textContent — never innerHTML —
+// so a daemon-supplied path/error string can't inject markup.
+const $contextError = document.getElementById("context-error");
+function showContextError(message) {
+  if (!$contextError) { console.warn("[context]", message); return; }
+  $contextError.textContent = message;
+  $contextError.hidden = false;
+}
+function clearContextError() {
+  if ($contextError) { $contextError.textContent = ""; $contextError.hidden = true; }
+}
+
 async function saveContext() {
   if (!contextCache) return false;
+  clearContextError();
   try {
     const r = await sendRequest("set_context", { entries: contextCache });
     if (r.errors && r.errors.length > 0) {
-      const lines = r.errors.map(e => `${e.path} — ${e.error}`).join("\n");
-      alert(`Some entries could not be saved:\n\n${lines}`);
+      const lines = r.errors.map(e => `${e.path} — ${e.error}`).join("; ");
+      showContextError(`Some entries could not be saved: ${lines}`);
     }
     contextCache = Array.isArray(r.saved) ? r.saved : contextCache;
     renderContext();
     return true;
   } catch (e) {
-    alert(`Could not save: ${e.message}`);
+    showContextError(`Could not save: ${e.message}`);
     return false;
   }
 }

@@ -798,6 +798,16 @@ export async function toolClearComments(args) {
     let deletedCount = 0;
     for (const { comment, paras } of probes) {
       if (paras.items.length === 0) continue;
+      // Map a comment to a paragraph by its anchor text. Office.js doesn't
+      // expose a stable paragraph handle for a comment's contentRange, so
+      // we match on text. Edge case under `paragraph_ids` scope: if two
+      // paragraphs have *identical* text and only one is in scope,
+      // findIndex returns the first occurrence — a comment anchored on the
+      // out-of-scope twin can match the in-scope one (or vice-versa) and
+      // get cleared (or skipped) wrongly. Acceptable: clear-comments is a
+      // bulk reset, identical-paragraph docs are rare, and the user can
+      // re-run. `heading_section` / `all: true` scopes are unaffected —
+      // they select by index range, not text.
       const firstText = paras.items[0].text;
       const idx = snapshot.findIndex(p => p.text === firstText);
       if (idx !== -1 && allowedIdxs.has(idx)) {
