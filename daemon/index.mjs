@@ -1057,7 +1057,15 @@ async function switchFolder(rawCwd, key, host = null) {
   // (host, cwd)'s prior conversation if one is on record. Every other
   // pane stays in its own workspace, untouched.
   const resumeId = host ? await getSessionId(host, cwd) : null;
-  await startSessionForFolder(cwd, resumeId, { key, host });
+  // Set the pane's workspace synchronously so cwdForKey() is correct in the
+  // window before the deferred start runs (a concurrent replay/context read
+  // would otherwise see the old folder). Then funnel the (re)start through
+  // the serialized per-key queue — never start directly — so a workspace
+  // switch concurrent with a queued post-Stop/model/first-message start
+  // coalesces instead of racing it (same invariant as restartSession; the
+  // race this prevents is the class fixed in PR #86).
+  workspaceByKey.set(key, cwd);
+  scheduleSessionStart(cwd, resumeId, key, host, "workspace_switch", { replay: true });
   return cwd;
 }
 
