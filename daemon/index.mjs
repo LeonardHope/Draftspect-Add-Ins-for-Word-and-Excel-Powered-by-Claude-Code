@@ -10,13 +10,14 @@ import { createOfficeBridgeMcp } from "./office-tools.mjs";
 import { resolveWorkspaceRoot, suggestWorkspaceRoot, ensureWorkspaceMarker } from "./workspace.mjs";
 import { randomUUID } from "node:crypto";
 import {
-  getSessionForFolder,
-  saveSessionForFolder,
+  getSessionId,
+  saveSessionId,
   touchFolder,
   getRecentFolders,
   forgetFolder,
 } from "./sessions.mjs";
 import { readTranscript } from "./transcript.mjs";
+import { diag } from "./diag.mjs";
 import { getContextEntries, setContextEntries } from "./context.mjs";
 import { stat } from "node:fs/promises";
 
@@ -167,18 +168,19 @@ function pickPathFromMain({ include_files, default_path, title, button_label }) 
 // Hoisted above createBridge so bridge handlers that fire during the
 // top-level awaits below (preflightHttpMcpServers, etc.) can call
 // getCurrentCwd without hitting a TDZ on this binding.
-let currentSession = null; // { cwd, sessionId, abortController, settled }
+let currentSession = null; // { cwd, sessionId, host, abortController, settled }
 
 // Resolve the session id to replay. Prefer the live session's id (set once
-// the SDK reports init); fall back to the id persisted for the current cwd
-// (covers the window before the SDK has re-inited on a fresh launch).
+// the SDK reports init); otherwise the id persisted for THIS (host, cwd)
+// — covers the window before the SDK has re-inited on a fresh launch, and
+// keeps Word's and Excel's transcripts separate.
 async function resolveReplaySessionId() {
   if (currentSession?.sessionId) return currentSession.sessionId;
-  const cwd = getCurrentCwd();
-  if (!cwd) return null;
+  const host = bridge.getContext().host ?? currentSession?.host ?? null;
+  const cwd = currentSession?.cwd ?? getCurrentCwd();
+  if (!host || !cwd) return null;
   try {
-    const saved = await getSessionForFolder(cwd);
-    return saved?.session_id ?? null;
+    return (await getSessionId(host, cwd)) ?? null;
   } catch {
     return null;
   }
@@ -204,38 +206,51 @@ async function sendTranscriptReplay() {
   }
 }
 
-// Schedule a fresh resuming session for `cwd` on the next tick — past the
+// Start (or resume) a session for (host, cwd) on the next tick — past the
 // current message handler / the agent loop's finally block (which nulls
-// currentSession), so startSessionForFolder builds cleanly. Every
-// auto-restart path (host re-narrow, post-stream-end, post-Stop) funnels
-// through here; `reason` only flavors the failure log.
-function scheduleResumeRestart(cwd, sessionId, host, reason) {
+// currentSession), so startSessionForFolder builds cleanly. Every path
+// that (re)starts a session — pane connect/host-switch, post-stream-end,
+// post-Stop — funnels through here; `reason` only flavors the failure log.
+function scheduleSessionStart(cwd, sessionId, host, reason) {
   setImmediate(() => {
     startSessionForFolder(cwd, sessionId, { host: host ?? null }).catch((err) =>
-      console.error(`[daemon] ${reason} session restart failed:`, err?.message ?? err),
+      console.error(`[daemon] ${reason} session start failed:`, err?.message ?? err),
     );
   });
 }
 
-// Called on every taskpane hello. The session may have been started before
-// any pane connected (host unknown → both tool families registered) or for
-// a different host (the user moved to a Word doc after an Excel one). If
-// the connected host doesn't match the session's registered tool family,
-// restart the session for the same cwd+sessionId narrowed to that host —
-// the restart resumes the conversation and emits its own cwd_changed +
-// transcript replay, so we skip the standalone replay in that case.
-// Otherwise just replay the transcript for the (re)connected pane.
-function maybeRenarrowForHost() {
+// Called on every taskpane hello. Word and Excel are independent surfaces,
+// each with its own persistent session (own session_id + transcript) per
+// workspace. If the connected pane's (host, cwd) already matches the live
+// session, nothing to do but replay its transcript for the reconnected
+// pane. Otherwise switch to that pane's own session — resuming its prior
+// conversation if one is on record, else fresh. No "re-narrowing": a
+// session is born for one host and stays that host for life, so there's
+// no tool-family churn and no cross-host history bleed.
+async function ensureSessionForActivePane() {
   const host = bridge.getContext().host ?? null;
-  if (host && currentSession && currentSession.toolHost !== host) {
-    const { cwd, sessionId } = currentSession;
-    console.log(
-      `[daemon] Host is ${host}; session tools were ${currentSession.toolHost ?? "both"} — re-narrowing`,
-    );
-    scheduleResumeRestart(cwd, sessionId, host, "host re-narrow");
+  const cwd = currentSession?.cwd ?? getCurrentCwd() ?? matterFolder;
+  if (!host) {
+    // No host on the hello (shouldn't happen) — just replay whatever we have.
+    sendTranscriptReplay().catch(() => {});
     return;
   }
-  sendTranscriptReplay().catch(() => {});
+  if (currentSession && currentSession.host === host && currentSession.cwd === cwd) {
+    // Same pane reconnecting (WS drop, panel reload): keep the live session
+    // running — do NOT restart it (that would kill an in-flight turn).
+    // Just re-render the chat for the freshly-connected pane.
+    sendTranscriptReplay().catch(() => {});
+    return;
+  }
+  let resumeId = null;
+  try {
+    resumeId = await getSessionId(host, cwd);
+  } catch {
+    /* fresh session if lookup fails */
+  }
+  diag(`hello → ensure session host=${host} cwd=${cwd} resume=${resumeId ?? "(new)"}`);
+  // startSessionForFolder emits its own cwd_changed + transcript replay.
+  scheduleSessionStart(cwd, resumeId, host, "pane connect");
 }
 
 // ---------------------------------------------------------------------------
@@ -245,7 +260,7 @@ const bridge = createBridge({
   port: WS_PORT,
   token: BRIDGE_TOKEN,
   allowedOrigins: [HTTP_ORIGIN],
-  onHello: () => maybeRenarrowForHost(),
+  onHello: () => ensureSessionForActivePane(),
   extraHandlers: {
     pick_path: async (msg, reply) => {
       try {
@@ -433,6 +448,50 @@ async function loadUserMcpServers() {
   }
 }
 
+// Hoisted ABOVE the top-level awaits below on purpose. Module evaluation
+// suspends at the first top-level `await` (loadUserMcpServers /
+// preflightHttpMcpServers). The bridge WS server is already listening by
+// then, so a taskpane `hello` can arrive mid-suspension and drive
+// startSessionForFolder before the rest of the module body runs. Anything
+// that path touches must be initialized first, or it hits a TDZ
+// ReferenceError. Keep this (and any other start-path consts) up here.
+const WORD_MCP_DISALLOWED = [
+  "mcp__word-mcp__word_accept_revisions",
+  "mcp__word-mcp__word_add_comment",
+  "mcp__word-mcp__word_apply_style",
+  "mcp__word-mcp__word_begin_transaction",
+  "mcp__word-mcp__word_commit_transaction",
+  "mcp__word-mcp__word_delete_comment",
+  "mcp__word-mcp__word_delete_paragraphs",
+  "mcp__word-mcp__word_delete_snapshot",
+  "mcp__word-mcp__word_diff_snapshots",
+  "mcp__word-mcp__word_emergency_recover",
+  "mcp__word-mcp__word_export_pdf",
+  "mcp__word-mcp__word_find_text",
+  "mcp__word-mcp__word_get_document_info",
+  "mcp__word-mcp__word_get_outline",
+  "mcp__word-mcp__word_get_paragraph",
+  "mcp__word-mcp__word_get_paragraphs",
+  "mcp__word-mcp__word_get_section",
+  "mcp__word-mcp__word_get_selection",
+  "mcp__word-mcp__word_get_styles",
+  "mcp__word-mcp__word_insert_paragraphs",
+  "mcp__word-mcp__word_list_comments",
+  "mcp__word-mcp__word_list_open_documents",
+  "mcp__word-mcp__word_list_revisions",
+  "mcp__word-mcp__word_list_transactions",
+  "mcp__word-mcp__word_prune_snapshots",
+  "mcp__word-mcp__word_reject_revisions",
+  "mcp__word-mcp__word_replace_paragraphs",
+  "mcp__word-mcp__word_replace_range",
+  "mcp__word-mcp__word_replace_section",
+  "mcp__word-mcp__word_replace_text",
+  "mcp__word-mcp__word_restore_snapshot",
+  "mcp__word-mcp__word_rollback_transaction",
+  "mcp__word-mcp__word_toggle_track_changes",
+  "mcp__word-mcp__word_undo_last_edit",
+];
+
 const userMcpServers = await loadUserMcpServers();
 const userMcpNames = Object.keys(userMcpServers);
 if (userMcpNames.length > 0) {
@@ -550,43 +609,6 @@ function customPermissionHandler(toolName, input) {
   return Promise.resolve({ behavior: "allow", updatedInput: input ?? {} });
 }
 
-const WORD_MCP_DISALLOWED = [
-  "mcp__word-mcp__word_accept_revisions",
-  "mcp__word-mcp__word_add_comment",
-  "mcp__word-mcp__word_apply_style",
-  "mcp__word-mcp__word_begin_transaction",
-  "mcp__word-mcp__word_commit_transaction",
-  "mcp__word-mcp__word_delete_comment",
-  "mcp__word-mcp__word_delete_paragraphs",
-  "mcp__word-mcp__word_delete_snapshot",
-  "mcp__word-mcp__word_diff_snapshots",
-  "mcp__word-mcp__word_emergency_recover",
-  "mcp__word-mcp__word_export_pdf",
-  "mcp__word-mcp__word_find_text",
-  "mcp__word-mcp__word_get_document_info",
-  "mcp__word-mcp__word_get_outline",
-  "mcp__word-mcp__word_get_paragraph",
-  "mcp__word-mcp__word_get_paragraphs",
-  "mcp__word-mcp__word_get_section",
-  "mcp__word-mcp__word_get_selection",
-  "mcp__word-mcp__word_get_styles",
-  "mcp__word-mcp__word_insert_paragraphs",
-  "mcp__word-mcp__word_list_comments",
-  "mcp__word-mcp__word_list_open_documents",
-  "mcp__word-mcp__word_list_revisions",
-  "mcp__word-mcp__word_list_transactions",
-  "mcp__word-mcp__word_prune_snapshots",
-  "mcp__word-mcp__word_reject_revisions",
-  "mcp__word-mcp__word_replace_paragraphs",
-  "mcp__word-mcp__word_replace_range",
-  "mcp__word-mcp__word_replace_section",
-  "mcp__word-mcp__word_replace_text",
-  "mcp__word-mcp__word_restore_snapshot",
-  "mcp__word-mcp__word_rollback_transaction",
-  "mcp__word-mcp__word_toggle_track_changes",
-  "mcp__word-mcp__word_undo_last_edit",
-];
-
 // ---------------------------------------------------------------------------
 // Async iterable that pulls user messages from the bridge and yields them
 // to the Agent SDK in the SDKUserMessage shape.
@@ -673,13 +695,14 @@ async function startSessionForFolder(cwd, resumeSessionId = null, { host = null 
     sessionId: resumeSessionId,
     abortController,
     settled: false,
-    toolHost: host,
+    host,
   };
   currentSession = session;
 
-  // Register only the connected host's tool family (or both when no
-  // taskpane has said hello yet — nothing can run at that point anyway;
-  // the first hello re-narrows via maybeRenarrowForHost).
+  // Register only this host's tool family. A session is created once the
+  // host is known (first hello → ensureSessionForActivePane), so `host`
+  // is normally "word" or "excel"; it's only null in the degraded case
+  // where a set_cwd arrived before any hello (both families registered).
   const officeMcp = createOfficeBridgeMcp(bridge, host);
 
   await touchFolder(cwd);
@@ -765,8 +788,8 @@ async function startSessionForFolder(cwd, resumeSessionId = null, { host = null 
           : "The agent stopped unexpectedly — this is usually a Claude usage limit. Wait for your limit to reset, or set ANTHROPIC_API_KEY to use an API key.";
         bridge.sendAssistantEvent({ event: "error", error: friendly });
         bridge.sendAssistantEvent({ event: "turn_complete", subtype: "stream_ended" });
-        const { cwd: rcwd, sessionId: rsid, toolHost: rhost } = session;
-        scheduleResumeRestart(rcwd, rsid, rhost, "post-stream-end");
+        const { cwd: rcwd, sessionId: rsid, host: rhost } = session;
+        scheduleSessionStart(rcwd, rsid, rhost, "post-stream-end");
       }
     } catch (err) {
       if (err.name === "AbortError" || /aborted/i.test(err.message ?? "")) {
@@ -781,8 +804,8 @@ async function startSessionForFolder(cwd, resumeSessionId = null, { host = null 
         // startSessionForFolder then builds cleanly.
         if (currentSession === session && session.interrupted) {
           bridge.sendAssistantEvent({ event: "turn_complete", interrupted: true });
-          const { cwd: rcwd, sessionId: rsid, toolHost: rhost } = session;
-          scheduleResumeRestart(rcwd, rsid, rhost, "post-stop");
+          const { cwd: rcwd, sessionId: rsid, host: rhost } = session;
+          scheduleSessionStart(rcwd, rsid, rhost, "post-stop");
         }
       } else if (currentSession === session) {
         console.error("[daemon] Agent loop crashed:", err);
@@ -815,10 +838,12 @@ async function switchFolder(rawCwd) {
   // Validate the path is a directory.
   const s = await stat(cwd);
   if (!s.isDirectory()) throw new Error(`Not a directory: ${cwd}`);
-  const saved = await getSessionForFolder(cwd);
-  // Preserve the connected host's tool family across the workspace switch.
-  const host = bridge.getContext().host ?? null;
-  await startSessionForFolder(cwd, saved?.session_id ?? null, { host });
+  // Resume THIS host's session for the target folder (Word and Excel keep
+  // separate conversations per folder). Fall back to the current/known
+  // host if the bridge hasn't recorded one yet.
+  const host = bridge.getContext().host ?? currentSession?.host ?? null;
+  const resumeId = host ? await getSessionId(host, cwd) : null;
+  await startSessionForFolder(cwd, resumeId, { host });
   return cwd;
 }
 
@@ -829,7 +854,7 @@ async function restartCurrentSession({ reason = "config_changed" } = {}) {
   if (!currentSession) return;
   const cwd = currentSession.cwd;
   const sessionId = currentSession.sessionId;
-  const host = currentSession.toolHost ?? null;
+  const host = currentSession.host ?? null;
   console.log(`[daemon] Restarting session for ${cwd} (reason: ${reason})`);
   bridge.sendAssistantEvent({ event: "config_reloaded", reason });
   await startSessionForFolder(cwd, sessionId, { host });
@@ -840,16 +865,26 @@ function handleAgentMessage(msg, session = currentSession) {
     case "system": {
       if (msg.subtype === "init") {
         console.log(`[agent] init session ${msg.session_id} (model: ${msg.model})`);
+        try {
+          const tn = Array.isArray(msg.tools) ? msg.tools : Object.keys(msg.tools ?? {});
+          diag(
+            `init tools (${tn.length}):`,
+            tn.filter((t) => /office|excel|mcp__/.test(String(t))).join(", ") ||
+              "(no office/excel/mcp tools in init list!)",
+          );
+        } catch (e) {
+          diag("init tools introspection failed:", e?.message);
+        }
         bridge.sendAssistantEvent({
           event: "session_init",
           session_id: msg.session_id,
           model: msg.model,
         });
-        // Record this session_id for the current cwd so the next switch back
-        // resumes here.
+        // Record this session_id for THIS (host, cwd) so the next time
+        // this pane connects (or you switch back) it resumes here.
         if (session && msg.session_id && msg.session_id !== session.sessionId) {
           session.sessionId = msg.session_id;
-          saveSessionForFolder(session.cwd, msg.session_id).catch((err) =>
+          saveSessionId(session.host, session.cwd, msg.session_id).catch((err) =>
             console.warn("[daemon] Could not save session id:", err.message),
           );
         }
@@ -873,6 +908,7 @@ function handleAgentMessage(msg, session = currentSession) {
       const blocks = msg.message?.content ?? [];
       for (const block of blocks) {
         if (block.type === "tool_use") {
+          diag("model called tool:", block.name);
           bridge.sendAssistantEvent({
             event: "tool_use_announce",
             tool: block.name,
@@ -899,11 +935,26 @@ function handleAgentMessage(msg, session = currentSession) {
 
 // ---------------------------------------------------------------------------
 // Kick off.
+//
+// No eager session: an agent session needs a host, and the host is only
+// known once a taskpane connects and says hello (→ ensureSessionFor
+// ActivePane). Starting both-tool sessions pre-hello is exactly what
+// caused the per-host tool/transcript churn. The bridge buffers any
+// user_message until a session's loop consumes it, so nothing is lost.
+//
+// Tell the Electron shell we're up now (servers listening) so the tray
+// flips to "Ready" without waiting for a pane — independent of, and
+// idempotent with, the daemon_ready that startSessionForFolder also
+// emits on the first real session.
 // ---------------------------------------------------------------------------
-startSessionForFolder(matterFolder).catch((err) => {
-  console.error("[daemon] Failed to start initial session:", err);
-  process.exit(1);
-});
+console.log(`[daemon] Ready; waiting for a taskpane. Default workspace: ${matterFolder}`);
+if (process.send) {
+  try {
+    process.send({ type: "daemon_ready" });
+  } catch {
+    /* no IPC channel (npm run dev) */
+  }
+}
 
 // Keep process alive even when nothing is happening.
 process.on("SIGINT", () => {

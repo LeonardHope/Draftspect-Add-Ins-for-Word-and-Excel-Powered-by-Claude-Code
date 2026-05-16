@@ -1,5 +1,6 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { diag } from "./diag.mjs";
 
 // Wrap a bridge tool result for MCP. Handlers return {content: [...]}.
 function asMcpResult(result, { isError = false } = {}) {
@@ -453,6 +454,11 @@ export function createOfficeBridgeMcp(bridge, host = null) {
   ];
   const tools =
     host === "word" ? wordTools : host === "excel" ? excelTools : [...wordTools, ...excelTools];
+
+  diag(
+    `createOfficeBridgeMcp host=${host ?? "both"} → ${tools.length} tools:`,
+    tools.map((t) => t?.name).join(", "),
+  );
 
   return createSdkMcpServer({
     name: "office",
