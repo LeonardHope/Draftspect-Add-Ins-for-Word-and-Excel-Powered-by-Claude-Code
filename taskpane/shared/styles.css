@@ -944,54 +944,6 @@ body {
   margin-top: 0;
 }
 
-/* Matter-suggest banner — appears in Setup → Matter folder when the active
-   doc lives outside the current matter and the daemon proposes a candidate
-   root. Soft amber treatment so it reads as "attention needed" without
-   being alarmist. */
-.matter-suggest {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  margin: 0 0 8px;
-  background: var(--bubble-tool);
-  border: 1px solid var(--bubble-tool-b);
-  border-radius: 6px;
-  font-size: 13px;
-}
-.matter-suggest[hidden] {
-  display: none;
-}
-.matter-suggest-body {
-  flex: 1;
-  min-width: 0;
-}
-.matter-suggest-label {
-  font-weight: 600;
-  margin-bottom: 2px;
-}
-.matter-suggest-path {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  color: var(--fg-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  direction: rtl;
-  text-align: left;
-}
-.matter-suggest-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-.matter-suggest-dismiss {
-  font-size: 16px;
-  padding: 2px 6px;
-  line-height: 1;
-}
-
 /* Matter rows reuse .reference-row but only the currently-selected matter
    should pop visually. Non-active matter rows get a neutral border + no
    fill so they read as "clickable, not current". Disclosure / samples /
@@ -1065,6 +1017,28 @@ body {
   color: var(--fg-muted);
   font-style: italic;
   padding: 8px 0;
+}
+/* "Recent workspaces" label above the recents list — distinct from the
+   section <h3> so it's clear the rows below are history, not the active
+   workspace. */
+.workspaces-heading {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--send-bg);
+  padding: 6px 0 2px;
+  border-top: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+  margin-top: 4px;
+}
+/* Tint the recents rows so the list reads as a secondary, switch-back
+   convenience rather than the primary control. */
+#workspaces-list .reference-row {
+  background: color-mix(in srgb, var(--send-bg) 7%, transparent);
+  border-radius: 6px;
+}
+#workspaces-list .reference-row.active {
+  background: color-mix(in srgb, var(--send-bg) 16%, transparent);
 }
 .reference-row {
   display: flex;
