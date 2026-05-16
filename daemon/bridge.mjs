@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 // finer-grained but aren't worth the complexity yet.)
 const TOOL_TIMEOUT_MS = 60_000;
 
-export function createBridge({ port, extraHandlers = {}, token, allowedOrigins = [] }) {
+export function createBridge({ port, extraHandlers = {}, token, allowedOrigins = [], onHello }) {
   if (!token) throw new Error("createBridge requires a token");
   const wss = new WebSocketServer({
     port,
@@ -196,6 +196,13 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
             server_version: "0.1.0",
           }));
           console.log(`[bridge] hello received; host: ${activeContext.host ?? "?"}; active doc: ${activeContext.activeDoc}`);
+          // Let the daemon push a transcript replay (and anything else it
+          // wants on connect). Fire-and-forget; never block the handler.
+          if (onHello) {
+            Promise.resolve(onHello()).catch(err =>
+              console.warn("[bridge] onHello failed:", err?.message ?? err),
+            );
+          }
           break;
         }
         case "user_message": {
@@ -273,6 +280,7 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
     callTaskpaneTool,
     sendAssistantText,
     sendAssistantEvent,
+    sendToTaskpane: send,
     getContext: () => ({ ...activeContext }),
     isTaskpaneConnected: () => activeWs?.readyState === activeWs?.OPEN,
     // Test/observability surface: the bound address (null until listening)
