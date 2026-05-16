@@ -551,6 +551,9 @@ function effectiveTrackChanges(provided) {
 
 async function runOfficeTool(msg) {
   const { id, name, args } = msg;
+  // Any selection change during a tool call is agent-driven, not the user
+  // picking something to ask about — don't let it become a context chip.
+  suspendSelectionCapture();
   try {
     // Host guard: refuse wrong-host tools with a clear message so the
     // agent can self-correct on its next turn. The daemon registers both
@@ -636,6 +639,8 @@ async function runOfficeTool(msg) {
   } catch (err) {
     console.error(`[tool ${name}] failed:`, err);
     wsSend({ type: "tool_result", id, ok: false, error: err?.message ?? String(err) });
+  } finally {
+    resumeSelectionCaptureSoon();
   }
 }
 
@@ -644,7 +649,36 @@ async function runOfficeTool(msg) {
 // ---------------------------------------------------------------------------
 let selectionDebounce = null;
 
+// Office's onSelectionChanged fires for programmatic range.select() too,
+// so an agent tool that moves the selection (excel_select_range, and the
+// incidental cursor moves write_range/insert_rows cause) would otherwise
+// masquerade as the USER selecting something to ask about — it'd pop a
+// "Selection: …" context chip and attach it to the next message. While an
+// agent tool runs (and a short tail after, to outlast the event latency +
+// the 100ms debounce) we suspend selection capture entirely.
+let selectionCaptureSuspended = false;
+let selectionResumeTimer = null;
+function suspendSelectionCapture() {
+  selectionCaptureSuspended = true;
+  if (selectionDebounce) {
+    clearTimeout(selectionDebounce);
+    selectionDebounce = null;
+  }
+  if (selectionResumeTimer) {
+    clearTimeout(selectionResumeTimer);
+    selectionResumeTimer = null;
+  }
+}
+function resumeSelectionCaptureSoon() {
+  if (selectionResumeTimer) clearTimeout(selectionResumeTimer);
+  selectionResumeTimer = setTimeout(() => {
+    selectionCaptureSuspended = false;
+    selectionResumeTimer = null;
+  }, 400);
+}
+
 async function captureSelection() {
+  if (selectionCaptureSuspended) return;
   try {
     let r;
     if (HOST === "excel") {
