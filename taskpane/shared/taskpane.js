@@ -369,7 +369,8 @@ document.getElementById("setting-show-diagnostics").addEventListener("change", (
   applySettings();
 });
 
-document.getElementById("setting-track-changes-mode").addEventListener("change", (e) => {
+// Word-only control; the Excel pane omits this element entirely.
+document.getElementById("setting-track-changes-mode")?.addEventListener("change", (e) => {
   settings.trackChangesMode = e.target.value;
   saveSettings(settings);
   applySettings();
@@ -867,12 +868,18 @@ document.querySelectorAll(".tab").forEach((btn) => {
 // Presets — saved prompts that the user can pin to quick-chips or browse
 // in the Library tab.
 // ===========================================================================
-const PRESETS_KEY = "claude-code-office-presets-v1";
+// Host-scoped: localStorage is per-origin and BOTH task panes are served
+// from the same origin (127.0.0.1), so a single key would let Word's
+// presets show up in Excel (and vice-versa). Keying by host keeps each
+// app's library separate.
+const PRESETS_KEY = "claude-code-office-presets-v1:" + HOST;
 
 function defaultPresets() {
+  return HOST === "excel" ? defaultExcelPresets() : defaultWordPresets();
+}
+
+function defaultWordPresets() {
   return [
-    // QC
-    // Summarize / outline
     {
       id: uuid(),
       title: "Summarize this document",
@@ -891,8 +898,6 @@ function defaultPresets() {
       pinned: false,
       auto_send: true,
     },
-
-    // Edit
     {
       id: uuid(),
       title: "Improve writing in selection",
@@ -920,8 +925,6 @@ function defaultPresets() {
       pinned: false,
       auto_send: true,
     },
-
-    // Review
     {
       id: uuid(),
       title: "Add comments on this section",
@@ -931,8 +934,6 @@ function defaultPresets() {
       pinned: false,
       auto_send: true,
     },
-
-    // Research (uses context files)
     {
       id: uuid(),
       title: "Answer using my context files",
@@ -941,8 +942,64 @@ function defaultPresets() {
       pinned: false,
       auto_send: false,
     },
-
     ...defaultEditingPresets(),
+  ];
+}
+
+function defaultExcelPresets() {
+  return [
+    {
+      id: uuid(),
+      title: "Summarize this sheet",
+      category: "Summarize",
+      prompt:
+        "List the worksheets, then read the active sheet's used range and give me a tight summary — what the data is, columns, row count, anything notable. Don't change anything.",
+      pinned: true,
+      auto_send: true,
+    },
+    {
+      id: uuid(),
+      title: "Explain the selected range",
+      category: "Summarize",
+      prompt:
+        "Read my current selection and explain what it contains — the columns, the values, and any pattern or total worth noting. Don't change anything.",
+      pinned: true,
+      auto_send: true,
+    },
+    {
+      id: uuid(),
+      title: "Add a totals row",
+      category: "Edit",
+      prompt:
+        "Add a labelled Total row beneath the data on the active sheet, using SUM formulas (not pre-computed numbers) for each numeric column. Read the range first; don't overwrite existing formulas.",
+      pinned: false,
+      auto_send: true,
+    },
+    {
+      id: uuid(),
+      title: "Check the data for problems",
+      category: "Review",
+      prompt:
+        "Scan the active sheet for data problems — blank cells in a filled column, inconsistent formatting/casing, likely typos, duplicates. List what you find in chat with cell addresses; don't change anything yet.",
+      pinned: false,
+      auto_send: true,
+    },
+    {
+      id: uuid(),
+      title: "Find a value",
+      category: "Edit",
+      prompt: "Find every cell containing: ",
+      pinned: false,
+      auto_send: false,
+    },
+    {
+      id: uuid(),
+      title: "Answer using my context files",
+      category: "Research",
+      prompt: "Use the context files I've added to this workspace to answer: ",
+      pinned: false,
+      auto_send: false,
+    },
   ];
 }
 
@@ -994,10 +1051,10 @@ function initPresets() {
     savePresets();
   } else {
     presets = existing;
-    // Migration: append the Editing category for users whose presets were
-    // seeded before it existed. Skips if they already have one (i.e. they
-    // migrated previously, or they added their own Editing preset).
-    if (!presets.some((p) => p.category === "Editing")) {
+    // Migration: append the Word-only Editing category (clear highlights)
+    // for Word users seeded before it existed. Excel has no highlight
+    // tool, so it never gets this.
+    if (HOST === "word" && !presets.some((p) => p.category === "Editing")) {
       presets.push(...defaultEditingPresets());
       savePresets();
     }
@@ -1460,7 +1517,7 @@ function showListMessage(container, klass, message) {
 
 const $workspaceChip = document.getElementById("workspace-chip");
 const $workspaceFolder = document.getElementById("workspace-folder");
-const $workspacesList = document.getElementById("workspaces-list");
+const $workspaceCwd = document.getElementById("workspace-cwd");
 const $addWorkspace = document.getElementById("add-workspace");
 const $workspaceError = document.getElementById("workspace-error");
 const $workspaceWarning = document.getElementById("workspace-warning");
@@ -1477,6 +1534,10 @@ function setWorkspaceDisplay(cwd) {
   const name = cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() : "(no workspace)";
   $workspaceFolder.textContent = name;
   $workspaceFolder.title = cwd || "";
+  if ($workspaceCwd) {
+    $workspaceCwd.textContent = cwd || "(no workspace)";
+    $workspaceCwd.title = cwd || "";
+  }
   refreshMismatchIndicator();
 }
 
@@ -1521,9 +1582,10 @@ async function loadWorkspaceSection() {
   await autoFollowDocWorkspace();
   try {
     const r = await sendRequest("get_cwd_state");
-    renderWorkspacesList(r.recent || [], r.current_cwd);
+    if (r.current_cwd) setWorkspaceDisplay(r.current_cwd);
   } catch (e) {
-    showListMessage($workspacesList, "references-empty", `Could not load: ${e.message}`);
+    $workspaceError.textContent = `Could not load workspace: ${e.message}`;
+    $workspaceError.hidden = false;
   }
 }
 
@@ -1544,83 +1606,6 @@ async function autoFollowDocWorkspace() {
   }
   lastFollowedDocDir = docDir;
   await doSwitch(null, { autodetectFromDoc: true });
-}
-
-function renderWorkspacesList(recent, currentCwd) {
-  // Ensure the currently-active workspace is in the list even if not in recent
-  // (e.g., daemon was launched at this folder but no one's "switched" to it
-  // yet, so it isn't in the recents file).
-  let list = Array.isArray(recent) ? [...recent] : [];
-  if (currentCwd && !list.some((f) => f.cwd === currentCwd)) {
-    list.unshift({
-      cwd: currentCwd,
-      display_name: currentCwd.split(/[\\/]/).filter(Boolean).pop(),
-    });
-  }
-
-  $workspacesList.innerHTML = "";
-  const heading = document.createElement("div");
-  heading.className = "workspaces-heading";
-  heading.textContent = "Recent workspaces";
-  $workspacesList.appendChild(heading);
-  if (list.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "references-empty";
-    empty.textContent = "No recent workspaces yet.";
-    $workspacesList.appendChild(empty);
-    return;
-  }
-
-  for (const f of list) {
-    const isActive = f.cwd === currentCwd;
-    const row = document.createElement("div");
-    row.className = "reference-row" + (isActive ? " active" : "");
-    row.title = f.cwd;
-    if (!isActive) row.style.cursor = "pointer";
-
-    const info = document.createElement("div");
-    info.className = "reference-info";
-    const pathEl = document.createElement("div");
-    pathEl.className = "reference-path";
-    if (isActive) {
-      const tag = document.createElement("span");
-      tag.className = "active-tag";
-      tag.textContent = "Active";
-      pathEl.appendChild(tag);
-    }
-    pathEl.appendChild(
-      document.createTextNode(f.display_name || f.cwd.split(/[\\/]/).filter(Boolean).pop()),
-    );
-    const subPath = document.createElement("div");
-    subPath.className = "reference-description";
-    subPath.style.fontFamily = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-    subPath.textContent = f.cwd;
-    info.appendChild(pathEl);
-    info.appendChild(subPath);
-    row.appendChild(info);
-
-    if (!isActive) {
-      const remove = document.createElement("button");
-      remove.className = "reference-remove";
-      remove.type = "button";
-      remove.title = "Remove from recent";
-      remove.textContent = "✕";
-      remove.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        try {
-          await sendRequest("forget_folder", { cwd: f.cwd });
-          loadWorkspaceSection();
-        } catch (err) {
-          console.warn("forget_folder failed:", err);
-        }
-      });
-      row.appendChild(remove);
-
-      row.addEventListener("click", () => doSwitch(f.cwd));
-    }
-
-    $workspacesList.appendChild(row);
-  }
 }
 
 async function doSwitch(cwd, { autodetectFromDoc = false } = {}) {
