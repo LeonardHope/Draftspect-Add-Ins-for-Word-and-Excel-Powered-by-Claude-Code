@@ -67,7 +67,7 @@ npm start
 
 That's it. A tray icon (menu bar on macOS, system tray on Windows) appears. The first launch offers to **install the add-in into Word and Excel for you** — click _Install_ and you're done.
 
-Open Word or Excel, go to **Insert → Office Add-ins → Shared Folder**, and pick _Claude Code for Word_ or _Claude Code for Excel_.
+**Restart Word/Excel** (fully quit, then reopen) so Office picks up the freshly-installed manifest. Then open the add-in: on **macOS** it's under **Insert → Add-ins → Developer Add-ins**; on **Windows** it's auto-sideloaded — find it under **Insert → Add-ins** (or **Home → Add-ins**) and launch _Claude Code for Word_ / _Claude Code for Excel_.
 
 > **One install per host.** The manifests use fixed add-in `<Id>` GUIDs, so a single Word (or Excel) installation can only sideload one copy of this add-in at a time. To run two clones side by side, change the `<Id>` GUID in one clone's `manifests/word.xml` / `manifests/excel.xml` to a fresh UUID.
 
@@ -228,7 +228,7 @@ Quickest manual fallback (macOS and Windows): in Word/Excel, **Insert → My Add
 If that menu item is missing on your build:
 
 - **macOS:** copy `manifests/word.xml` to `~/Library/Containers/com.microsoft.Word/Data/Documents/wef/` (create the folder if missing). Same for Excel.
-- **Windows:** put both manifests in a folder, then File → Options → Trust Center → Trust Center Settings → Trusted Add-in Catalogs → add the path → check **Show in Menu** → restart Office. Microsoft's full guide: [Sideload an Office Add-in on Windows](https://learn.microsoft.com/en-us/office/dev/add-ins/testing/create-a-network-shared-folder-catalog-for-task-pane-and-content-add-ins).
+- **Windows:** the installer registers each manifest under `HKCU\Software\Microsoft\Office\16.0\WEF\Developer` (Office sideloads it directly on next launch — no admin, no network share). To do it by hand, copy `manifests\word.xml` / `excel.xml` somewhere stable and add a `REG_SZ` value to that key whose **name and data are the manifest's full path**, then restart Office. (A Trusted Add-in Catalog also works but requires the folder to be a real UNC network share — a local path is silently ignored.)
 </details>
 
 <details>
