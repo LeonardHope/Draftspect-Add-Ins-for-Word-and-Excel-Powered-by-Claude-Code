@@ -1,0 +1,11 @@
+node_modules/
+package-lock.json
+dist/
+*.png
+*.ico
+# Office manifests — prettier has no XML parser; leave them byte-stable
+# (Office is picky and they're hand-maintained).
+manifests/
+# Local-only scratch (also gitignored).
+PORT_TO_OFFICE_ADDINS.md
+AGENTS.md

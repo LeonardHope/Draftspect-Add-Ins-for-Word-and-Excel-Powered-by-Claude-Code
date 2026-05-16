@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<OfficeApp
+  xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xsi:type="TaskPaneApp">
+
+  <Id>4b5861d6-18ee-4d4a-b9ee-d43d7da80ff4</Id>
+  <Version>0.1.0.0</Version>
+  <ProviderName>Local Dev</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Claude Code for Excel" />
+  <Description DefaultValue="Bring your local Claude Code into Excel. Read and edit the active workbook; pull in context files from your workspace." />
+  <IconUrl DefaultValue="http://127.0.0.1:47824/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="http://127.0.0.1:47824/icon-80.png" />
+  <SupportUrl DefaultValue="http://127.0.0.1:47824/" />
+
+  <AppDomains>
+    <AppDomain>http://127.0.0.1:47824</AppDomain>
+  </AppDomains>
+
+  <!--
+    Minimum Excel API version. Required for getUsedRangeOrNullObject and
+    the *OrNullObject helpers. The onSelectionChanged event (1.7+) is
+    wired up inside a try/.catch in taskpane.js, so its absence
+    degrades selection-tracking gracefully — no need to require 1.7.
+  -->
+  <Requirements>
+    <Sets DefaultMinVersion="1.4">
+      <Set Name="ExcelApi" MinVersion="1.4" />
+    </Sets>
+  </Requirements>
+
+  <Hosts>
+    <Host Name="Workbook" />
+  </Hosts>
+
+  <DefaultSettings>
+    <SourceLocation DefaultValue="http://127.0.0.1:47824/excel/index.html" />
+  </DefaultSettings>
+
+  <Permissions>ReadWriteDocument</Permissions>
+</OfficeApp>
