@@ -45,6 +45,17 @@ function normalizeDocPath(docPath) {
       return null;
     }
   }
+  // A Windows drive path (C:\… or C:/…) or a UNC share (\\host\share)
+  // is a real filesystem path, NOT a URL — and must be recognized BEFORE
+  // the scheme check below, because a bare "C:" matches the URL-scheme
+  // regex and would be wrongly discarded. That was the symptom on
+  // Windows: the workspace always fell back to the daemon's launch dir
+  // instead of the open document's folder. Don't decodeURIComponent
+  // here — Office hands Windows local paths verbatim, so a literal "%"
+  // in a filename must survive.
+  if (/^[a-zA-Z]:[\\/]/.test(docPath) || /^\\\\[^\\]/.test(docPath)) {
+    return resolvePath(docPath);
+  }
   if (/^[a-z][a-z0-9+.-]*:/i.test(docPath)) {
     // Some non-file URL (https://…sharepoint…) — no filesystem path.
     return null;
