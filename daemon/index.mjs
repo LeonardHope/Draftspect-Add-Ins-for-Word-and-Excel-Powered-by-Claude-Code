@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve, extname, join } from "node:path";
+import { dirname, resolve, extname, join, sep } from "node:path";
 import { homedir } from "node:os";
 import { createBridge } from "./bridge.mjs";
 import { createOfficeBridgeMcp } from "./office-tools.mjs";
@@ -90,7 +90,14 @@ const http = createServer(async (req, res) => {
 
     const relPath = urlPath === "/" ? "/index.html" : urlPath;
     const fsPath = join(taskpaneDir, relPath);
-    if (!fsPath.startsWith(taskpaneDir)) { res.writeHead(403).end("Forbidden"); return; }
+    // Containment check. `join` already normalizes `../`, so the obvious
+    // traversal is blocked — but a bare startsWith(taskpaneDir) would also
+    // accept a sibling like `<…>/taskpane-evil/x`. Require an exact match
+    // OR a path under `taskpaneDir` + separator.
+    if (fsPath !== taskpaneDir && !fsPath.startsWith(taskpaneDir + sep)) {
+      res.writeHead(403).end("Forbidden");
+      return;
+    }
     const data = await readFile(fsPath);
     const mime = MIME[extname(fsPath).toLowerCase()] || "application/octet-stream";
     res.writeHead(200, { "Content-Type": mime });

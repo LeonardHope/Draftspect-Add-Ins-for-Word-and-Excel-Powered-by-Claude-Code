@@ -4,6 +4,22 @@
   <meta charset="UTF-8" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Defense-in-depth against future XSS via tool/agent output. All
+       dynamic content is rendered with .textContent today (correct), but
+       this catches regressions. script-src allows our own origin + the
+       Office.js CDN; connect-src allows the same-origin /bridge-token
+       fetch + the WS bridge (127.0.0.1:47823). NOTE: if a future Office
+       build pulls scripts from another Microsoft origin and the panel
+       goes blank, widen script-src/connect-src — do NOT remove the
+       policy. Needs live verification in Word AND Excel. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self' https://appsforoffice.microsoft.com;
+                 style-src 'self' 'unsafe-inline';
+                 img-src 'self' data:;
+                 connect-src 'self' ws://127.0.0.1:47823;
+                 base-uri 'none';
+                 object-src 'none'" />
   <title>Claude Code for Excel</title>
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
   <link rel="stylesheet" href="/shared/styles.css" />
