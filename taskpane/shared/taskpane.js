@@ -131,7 +131,6 @@ function shortModelName(idOrAlias) {
   if (/opus/i.test(s)) return "Opus";
   if (/sonnet/i.test(s)) return "Sonnet";
   if (/haiku/i.test(s)) return "Haiku";
-  if (s === "default") return "Default";
   return s.replace(/^claude-/, "").split(/[-[]/)[0] || s;
 }
 
@@ -406,7 +405,11 @@ function loadSettings() {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return defaultSettings();
-    return { ...defaultSettings(), ...JSON.parse(raw) };
+    const s = { ...defaultSettings(), ...JSON.parse(raw) };
+    // Migrate the retired "default" model choice (and any stale value) to
+    // the explicit Sonnet default so the dropdown/indicator stay valid.
+    if (!["haiku", "sonnet", "opus"].includes(s.model)) s.model = "sonnet";
+    return s;
   } catch {
     return defaultSettings();
   }

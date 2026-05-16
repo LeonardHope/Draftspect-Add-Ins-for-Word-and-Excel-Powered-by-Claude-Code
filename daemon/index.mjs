@@ -188,13 +188,14 @@ const explicitWorkspaceKeys = new Set();
 // model is fixed per agent loop, so a change while a loop is live triggers
 // a resuming restart (see the set_model handler).
 const modelByKey = new Map();
-const ALLOWED_MODELS = new Set(["haiku", "sonnet", "opus", "default"]);
+const ALLOWED_MODELS = new Set(["haiku", "sonnet", "opus"]);
 
-// The `model` value to pass to query(): the alias for haiku/sonnet/opus,
-// or null to defer to the Claude Code CLI's own configured default.
+// The model alias to pass to query(). Draftspect always pins an explicit
+// model (cost-control UI) — never silently inherits the CLI default, which
+// can be Opus. Falls back to "sonnet" if the taskpane hasn't said yet.
 function modelArgFor(key) {
   const m = modelByKey.get(key);
-  return m && m !== "default" ? m : null;
+  return ALLOWED_MODELS.has(m) ? m : "sonnet";
 }
 
 function sessionFor(key) {
@@ -909,9 +910,8 @@ async function startSessionForFolder(
           disallowedTools: WORD_MCP_DISALLOWED,
           canUseTool: customPermissionHandler,
           includePartialMessages: true,
-          // User-chosen model (composer dropdown). Omitted entirely for
-          // "default" so the Claude Code CLI's own model config wins.
-          ...(modelArgFor(key) ? { model: modelArgFor(key) } : {}),
+          // User-chosen model (composer dropdown); always explicit.
+          model: modelArgFor(key),
           abortController,
           // Surface the SDK CLI's stderr (MCP connect failures, internal
           // warnings, etc.) in our daemon log. Also sniff it for
