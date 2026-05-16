@@ -32,7 +32,10 @@ function asMcpError(err) {
  * @param {"word"|"excel"|null} host
  */
 export function createOfficeBridgeMcp(bridge, host = null) {
-  const call = (name, args) => bridge.callTaskpaneTool(name, args);
+  // Route to this session's host pane explicitly (the tool-name prefix is
+  // the bridge's fallback). host is null only in the degraded pre-bind
+  // case; the prefix still routes correctly there.
+  const call = (name, args) => bridge.callTaskpaneTool(name, args, host);
 
   const office_get_selection = tool(
     "office_get_selection",
