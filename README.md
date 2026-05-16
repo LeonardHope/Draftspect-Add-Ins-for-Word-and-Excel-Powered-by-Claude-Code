@@ -1,4 +1,6 @@
-# Claude Code Add-Ins for Word and Excel
+# Draftspect
+
+> Add-ins for Word and Excel — **Powered by Claude.**
 
 [![CI](https://github.com/LeonardHope/Claude-Code-Add-Ins-For-Word-and-Excel/actions/workflows/ci.yml/badge.svg)](https://github.com/LeonardHope/Claude-Code-Add-Ins-For-Word-and-Excel/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -13,11 +15,11 @@ Everything runs on your computer; only API calls go to Anthropic.
 
 **Word** — surgical, tracked edits and margin comments, driven from the side pane:
 
-![Claude Code for Word — tracked changes and comments in a document](docs/images/word-demo.png)
+![Draftspect for Word — tracked changes and comments in a document](docs/images/word-demo.png)
 
 **Excel** — reads and writes ranges, adds live `=SUM()` formulas, finds and selects cells:
 
-![Claude Code for Excel — a sales sheet with a formula-driven total row](docs/images/excel-demo.png)
+![Draftspect for Excel — a sales sheet with a formula-driven total row](docs/images/excel-demo.png)
 
 ---
 
@@ -77,7 +79,7 @@ npm start
 
 That's it. A tray icon (menu bar on macOS, system tray on Windows) appears. The first launch offers to **install the add-in into Word and Excel for you** — click _Install_ and you're done.
 
-**Restart Word/Excel** (fully quit, then reopen) so Office picks up the freshly-installed manifest. Then open the add-in: on **macOS** it's under **Insert → Add-ins → Developer Add-ins**; on **Windows** it's auto-sideloaded — find it under **Insert → Add-ins** (or **Home → Add-ins**) and launch _Claude Code for Word_ / _Claude Code for Excel_.
+**Restart Word/Excel** (fully quit, then reopen) so Office picks up the freshly-installed manifest. Then open the add-in: on **macOS** it's under **Insert → Add-ins → Developer Add-ins**; on **Windows** it's auto-sideloaded — find it under **Insert → Add-ins** (or **Home → Add-ins**) and launch _Draftspect for Word_ / _Draftspect for Excel_.
 
 > **One install per host.** The manifests use fixed add-in `<Id>` GUIDs, so a single Word (or Excel) installation can only sideload one copy of this add-in at a time. To run two clones side by side, change the `<Id>` GUID in one clone's `manifests/word.xml` / `manifests/excel.xml` to a fresh UUID.
 

@@ -1,15 +1,14 @@
-# Claude Code Add-Ins for Word and Excel — project guidance for Claude Code
+# Draftspect — project guidance for Claude Code
 
-Microsoft Office add-ins (Word + Excel) that wrap a local Claude Code daemon and expose it inside Office via Office.js task panes. Cross-platform (macOS + Windows).
+**Draftspect** — Microsoft Office (Word + Excel) add-ins that wrap a local Claude Code daemon and expose it inside Office via Office.js task panes. Cross-platform (macOS + Windows).
 
-This is **not a product** — it's a public GitHub repo of integration code. Each user clones it and runs it on their own machine with their own Claude Code. The naming convention reflects that:
+The **product name is "Draftspect"** (independent name, per Anthropic's Agent-SDK branding rule that "Claude Code" must not be the product/marketing name). The sanctioned attribution lockup is **"Powered by Claude"**. Naming convention:
 
-- npm package: `claude-code-office-addins`
-- Per-host add-in DisplayName: `Claude Code for Word`, `Claude Code for Excel`
-- Tray app: `Claude Code for Office`
-- Repo title: `Claude Code Add-Ins for Word and Excel`
+- Product / app name: `Draftspect` — surfaced as `Draftspect for Word`, `Draftspect for Excel`, `Draftspect for Office` (tray), always with the "Powered by Claude" lockup where a tagline fits.
+- npm package: `draftspect-office-addins`
+- GitHub repo: name/description carries the **descriptive** phrase "Add-Ins for Word and Excel, Powered by Claude Code" — that's nominative use (it factually wraps Claude Code), distinct from naming the _product_ "Claude Code".
 
-These are descriptive labels (the integration code IS for Claude Code), not a product brand. The Anthropic branding rule against using "Claude Code" in a _product name_ doesn't apply because we're not shipping a product.
+**Keep accurate engine references.** Text that tells the user about the _actual_ Claude Code they must install / sign into / whose OAuth is used (README setup, auth-error banner, the Agent SDK running their Claude Code) stays "Claude Code" — that's correct, honest, nominative use; renaming it would be misleading. Only the **product's own name** is Draftspect.
 
 ## Architecture (3 paragraphs)
 
@@ -22,7 +21,7 @@ The **taskpane** (`taskpane/`) is what shows up inside Word/Excel. One shared `t
 ## Key constraints
 
 - **Auth.** Each user clones the repo and runs it on their own machine with their own Claude Code OAuth (or `ANTHROPIC_API_KEY`). That use is sanctioned. Distributing a packaged/hosted product that uses subscription OAuth on behalf of other users is **not** allowed without Anthropic partner approval — see `feedback_subscription_auth_only` and `reference_anthropic_april_2026_policy`. If this ever ships as a real product, switch to BYO API key.
-- **Branding.** This is a public repo of integration code, not a product. Naming is descriptive ("Claude Code for Word", etc.) — that's allowed because we're not packaging a third-party product on top of Claude Code. If this ever DID become a packaged product, the "Claude Code" naming would need to be replaced. See `feedback_product_branding_compliance`.
+- **Branding.** The product is named **Draftspect** with a **"Powered by Claude"** lockup — an independent name, per Anthropic's Agent-SDK rule that "Claude Code" must not be a product/marketing name. Accurate references to the user's real Claude Code (install, sign-in, OAuth, the SDK driving it) stay as "Claude Code" — nominative/descriptive use is fine and necessary for accuracy. The GitHub repo's name/description may carry the descriptive "…Powered by Claude Code" (it factually wraps Claude Code). See `feedback_product_branding_compliance`.
 - **Filesystem-write safety.** A `canUseTool` guard refuses `Write`/`Edit`/`MultiEdit` against `.docx`/`.docm`/`.xlsx`/`.xlsm` paths — the active doc is held by Office with unsaved changes, and a filesystem write would corrupt it. The agent must use `office_*` / `excel_*` tools instead.
 - **Feature branches, not main.** Per the user's standing preference, every feature goes on a branch and lands via PR — no direct commits to main.
 - **MCP forwarding.** The daemon must forward `~/.claude.json`'s `mcpServers` into the SDK session. The SDK doesn't read that file. If a server is unreachable at daemon startup, the SDK silently drops it for the session's lifetime — restart to retry. See `feedback_sdk_silently_drops_failed_mcp`.

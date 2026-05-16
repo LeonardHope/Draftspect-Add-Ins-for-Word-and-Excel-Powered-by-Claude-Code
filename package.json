@@ -1,7 +1,7 @@
 {
-  "name": "claude-code-office-addins",
+  "name": "draftspect-office-addins",
   "version": "0.1.0",
-  "description": "Microsoft Office (Word + Excel) add-ins that bring your local Claude Code into Office.",
+  "description": "Draftspect — Microsoft Office (Word + Excel) add-ins that bring your local Claude Code into Office. Powered by Claude.",
   "private": true,
   "main": "app/main.mjs",
   "type": "module",

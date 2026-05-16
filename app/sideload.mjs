@@ -1,4 +1,4 @@
-// Auto-sideload the Claude Code add-in manifests into Word and Excel.
+// Auto-sideload the Draftspect add-in manifests into Word and Excel.
 //
 // macOS: drop manifests into the per-host wef/ folder inside the Office
 // app's container. Word/Excel scan that folder on launch and surface
@@ -16,7 +16,7 @@
 // the add-in. The Developer key is what the official Office dev tooling
 // uses for local sideloading.)
 //
-//   %APPDATA%\Claude Code for Office\manifests\{word,excel}.xml
+//   %APPDATA%\Draftspect\manifests\{word,excel}.xml
 //   HKCU\Software\Microsoft\Office\16.0\WEF\Developer
 //     <full manifest path> = <full manifest path>  (REG_SZ)
 //
@@ -100,7 +100,7 @@ const WIN_LEGACY_CATALOG_KEY =
   "HKCU\\Software\\Microsoft\\Office\\16.0\\WEF\\TrustedCatalogs\\claude-code-office-trusted-catalog";
 
 function winCatalogDir() {
-  return join(homedir(), "AppData", "Roaming", "Claude Code for Office", "manifests");
+  return join(homedir(), "AppData", "Roaming", "Draftspect", "manifests");
 }
 
 function regCommand(args) {
