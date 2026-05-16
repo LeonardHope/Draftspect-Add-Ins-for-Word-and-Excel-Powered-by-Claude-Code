@@ -69,6 +69,55 @@ const MIME = {
 
 const taskpaneDir = join(PROJECT_ROOT, "taskpane");
 
+// A branded, actionable error page. Office renders whatever the manifest's
+// SourceLocation returns inside the task pane, so a bare "Not found" (the
+// old body) left users staring at two unhelpful words. The common real
+// causes are all recoverable; spell them out. Served only to document
+// navigations (Accept: text/html) — asset fetches still get terse text so
+// nothing tries to parse HTML as JS/CSS.
+const htmlEscape = (s) =>
+  String(s).replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+  );
+
+function errorPageHtml(status, headline, requestedPath) {
+  requestedPath = htmlEscape(requestedPath);
+  return `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Draftspect — ${status}</title>
+<style>
+  body{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+       color:#1a1a1a;margin:0;padding:28px 24px;background:#fff}
+  h1{font-size:18px;margin:0 0 4px}
+  .sub{color:#666;margin:0 0 18px}
+  ol{padding-left:20px;margin:0 0 18px} li{margin:6px 0}
+  code{background:#f2f2f2;padding:1px 5px;border-radius:4px;font-size:12px}
+  .foot{color:#999;font-size:12px;border-top:1px solid #eee;padding-top:12px}
+</style></head><body>
+<h1>Draftspect couldn't load this panel</h1>
+<p class="sub">${headline}</p>
+<p>This usually means one of:</p>
+<ol>
+  <li>The <strong>Draftspect tray app isn't running</strong> — start it, then reopen this panel.</li>
+  <li>Word/Excel cached an old add-in — <strong>fully quit the app (⌘Q / Alt+F4) and reopen it</strong> so it re-reads the add-in.</li>
+  <li>This add-in's manifest points at a <strong>different port</strong> than the running Draftspect daemon (e.g. another add-in's daemon answered). Relaunch Draftspect, then quit &amp; reopen Word/Excel.</li>
+  <li>If it persists, reinstall the add-in from the Draftspect tray menu.</li>
+</ol>
+<p class="foot">Draftspect daemon on <code>127.0.0.1:${HTTP_PORT}</code> · requested <code>${requestedPath}</code> · ${status}</p>
+</body></html>`;
+}
+
+function sendError(req, res, status, headline, requestedPath) {
+  const wantsHtml = (req.headers.accept || "").includes("text/html");
+  if (wantsHtml) {
+    res.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(errorPageHtml(status, headline, requestedPath));
+  } else {
+    res.writeHead(status).end(headline);
+  }
+}
+
 const http = createServer(async (req, res) => {
   // Restrictive CORS: only the taskpane's same origin (HTTP_ORIGIN) gets the
   // Access-Control-Allow-Origin header. Other origins (malicious web pages
@@ -115,11 +164,24 @@ const http = createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": mime });
     res.end(data);
   } catch (err) {
+    const reqPath = (req.url || "/").split("?")[0];
     if (err.code === "ENOENT") {
-      res.writeHead(404).end("Not found");
+      sendError(
+        req,
+        res,
+        404,
+        "That page or file isn’t served by this Draftspect daemon.",
+        reqPath,
+      );
     } else {
       console.error("[http]", err);
-      res.writeHead(500).end("Server error");
+      sendError(
+        req,
+        res,
+        500,
+        "The Draftspect daemon hit an internal error serving this page.",
+        reqPath,
+      );
     }
   }
 });
