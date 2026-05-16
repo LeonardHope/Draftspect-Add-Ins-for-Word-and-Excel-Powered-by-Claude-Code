@@ -432,3 +432,163 @@ export async function toolExcelClearRange({ address, sheet = null, what = "conte
     return { sheet: sheetName, address: range.address, cleared: what };
   });
 }
+
+// ---------------------------------------------------------------------------
+// Tier 2 editing tools — sort / filter / tables / charts / dimensions
+// ---------------------------------------------------------------------------
+
+// Tool: excel_sort_range — sort a range by one column.
+export async function toolExcelSortRange({
+  address,
+  sheet = null,
+  key = 0,
+  ascending = true,
+  has_headers = false,
+}) {
+  if (!address || typeof address !== "string") throw new Error("`address` is required.");
+  if (!Number.isInteger(key) || key < 0) throw new Error("`key` must be a 0-based column index.");
+  return await Excel.run(async (context) => {
+    const activeName = sheet || (await _activeSheetName(context));
+    const { sheetName, a1 } = _splitSheetAddress(address, activeName);
+    const ws = context.workbook.worksheets.getItem(sheetName);
+    const range = ws.getRange(a1);
+    range.sort.apply([{ key, ascending: !!ascending }], false, !!has_headers);
+    range.load("address");
+    await context.sync();
+    return {
+      sheet: sheetName,
+      address: range.address,
+      sorted_by_column: key,
+      ascending: !!ascending,
+    };
+  });
+}
+
+// Tool: excel_autofilter — apply an AutoFilter to a range, or clear it.
+export async function toolExcelAutoFilter({ address, sheet = null, clear = false }) {
+  return await Excel.run(async (context) => {
+    const activeName = sheet || (await _activeSheetName(context));
+    const ws = context.workbook.worksheets.getItem(activeName);
+    if (clear) {
+      ws.autoFilter.remove();
+      await context.sync();
+      return { sheet: activeName, autofilter: "removed" };
+    }
+    if (!address || typeof address !== "string") {
+      throw new Error("`address` is required (or pass clear: true to remove the filter).");
+    }
+    const { a1 } = _splitSheetAddress(address, activeName);
+    ws.autoFilter.apply(ws.getRange(a1));
+    await context.sync();
+    return { sheet: activeName, autofilter: "applied", address: a1 };
+  });
+}
+
+// Tool: excel_create_table — turn a range into a named Excel table.
+export async function toolExcelCreateTable({
+  address,
+  sheet = null,
+  has_headers = true,
+  name = null,
+}) {
+  if (!address || typeof address !== "string") throw new Error("`address` is required.");
+  return await Excel.run(async (context) => {
+    const activeName = sheet || (await _activeSheetName(context));
+    const { sheetName, a1 } = _splitSheetAddress(address, activeName);
+    const ws = context.workbook.worksheets.getItem(sheetName);
+    const table = ws.tables.add(a1, !!has_headers);
+    if (name) table.name = name;
+    table.load("name");
+    await context.sync();
+    return { sheet: sheetName, table: table.name, range: a1 };
+  });
+}
+
+// Tool: excel_add_table_rows — append rows to an existing table.
+export async function toolExcelAddTableRows({ table, values, index = null }) {
+  if (!table || typeof table !== "string") throw new Error("`table` (table name) is required.");
+  if (!Array.isArray(values) || !values.length || !Array.isArray(values[0])) {
+    throw new Error("`values` must be a non-empty 2D array.");
+  }
+  return await Excel.run(async (context) => {
+    const t = context.workbook.tables.getItem(table);
+    t.rows.add(Number.isInteger(index) ? index : null, values);
+    await context.sync();
+    return { table, added_rows: values.length };
+  });
+}
+
+const CHART_TYPE = {
+  column: "ColumnClustered",
+  bar: "BarClustered",
+  line: "Line",
+  pie: "Pie",
+  scatter: "XYScatter",
+  area: "Area",
+};
+
+// Tool: excel_create_chart — add a chart from a data range.
+export async function toolExcelCreateChart({
+  data_address,
+  sheet = null,
+  chart_type = "column",
+  title = null,
+}) {
+  if (!data_address || typeof data_address !== "string") {
+    throw new Error("`data_address` is required.");
+  }
+  return await Excel.run(async (context) => {
+    const activeName = sheet || (await _activeSheetName(context));
+    const { sheetName, a1 } = _splitSheetAddress(data_address, activeName);
+    const ws = context.workbook.worksheets.getItem(sheetName);
+    const type = CHART_TYPE[String(chart_type).toLowerCase()] || chart_type;
+    const chart = ws.charts.add(type, ws.getRange(a1), Excel.ChartSeriesBy.auto);
+    if (title) {
+      chart.title.text = title;
+      chart.title.visible = true;
+    }
+    chart.load("name");
+    await context.sync();
+    return { sheet: sheetName, chart: chart.name, type, data: a1 };
+  });
+}
+
+// Tool: excel_set_column_width — set a fixed width, or autofit.
+export async function toolExcelSetColumnWidth({
+  address,
+  sheet = null,
+  width = null,
+  autofit = false,
+}) {
+  if (!address || typeof address !== "string") throw new Error("`address` is required.");
+  return await Excel.run(async (context) => {
+    const activeName = sheet || (await _activeSheetName(context));
+    const { sheetName, a1 } = _splitSheetAddress(address, activeName);
+    const range = context.workbook.worksheets.getItem(sheetName).getRange(a1);
+    if (autofit) range.format.autofitColumns();
+    else if (typeof width === "number") range.format.columnWidth = width;
+    else throw new Error("Provide `width` (points) or `autofit: true`.");
+    await context.sync();
+    return { sheet: sheetName, address: a1, autofit: !!autofit, width: autofit ? null : width };
+  });
+}
+
+// Tool: excel_set_row_height — set a fixed height, or autofit.
+export async function toolExcelSetRowHeight({
+  address,
+  sheet = null,
+  height = null,
+  autofit = false,
+}) {
+  if (!address || typeof address !== "string") throw new Error("`address` is required.");
+  return await Excel.run(async (context) => {
+    const activeName = sheet || (await _activeSheetName(context));
+    const { sheetName, a1 } = _splitSheetAddress(address, activeName);
+    const range = context.workbook.worksheets.getItem(sheetName).getRange(a1);
+    if (autofit) range.format.autofitRows();
+    else if (typeof height === "number") range.format.rowHeight = height;
+    else throw new Error("Provide `height` (points) or `autofit: true`.");
+    await context.sync();
+    return { sheet: sheetName, address: a1, autofit: !!autofit, height: autofit ? null : height };
+  });
+}

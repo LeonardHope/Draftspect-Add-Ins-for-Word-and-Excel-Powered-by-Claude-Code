@@ -18,6 +18,15 @@ import {
   toolSetTableCell,
   toolGetDocumentText,
   toolGetOutline,
+  toolSetList,
+  toolInsertImage,
+  toolInsertHyperlink,
+  toolInsertBookmark,
+  toolFind,
+  toolListComments,
+  toolReplyToComment,
+  toolResolveComment,
+  toolHeaderFooter,
 } from "./tools-word.js";
 import {
   toolExcelGetSelectedRange,
@@ -36,6 +45,13 @@ import {
   toolExcelDeleteSheet,
   toolExcelRenameSheet,
   toolExcelClearRange,
+  toolExcelSortRange,
+  toolExcelAutoFilter,
+  toolExcelCreateTable,
+  toolExcelAddTableRows,
+  toolExcelCreateChart,
+  toolExcelSetColumnWidth,
+  toolExcelSetRowHeight,
 } from "./tools-excel.js";
 import { isInOrUnder, docDirFromActiveUrl } from "./paths.js";
 
@@ -237,6 +253,15 @@ const TOOL_STATUS_LABELS = {
   office_set_table_cell: "Editing a table cell…",
   office_get_document_text: "Reading the document…",
   office_get_outline: "Reading the outline…",
+  office_set_list: "Formatting a list…",
+  office_insert_image: "Inserting an image…",
+  office_insert_hyperlink: "Adding a link…",
+  office_insert_bookmark: "Adding a bookmark…",
+  office_find: "Searching the document…",
+  office_list_comments: "Reading comments…",
+  office_reply_to_comment: "Replying to a comment…",
+  office_resolve_comment: "Resolving a comment…",
+  office_header_footer: "Editing header/footer…",
   // Excel
   excel_get_selected_range: "Reading your selection…",
   excel_list_sheets: "Listing sheets…",
@@ -254,6 +279,13 @@ const TOOL_STATUS_LABELS = {
   excel_delete_sheet: "Deleting a sheet…",
   excel_rename_sheet: "Renaming a sheet…",
   excel_clear_range: "Clearing cells…",
+  excel_sort_range: "Sorting…",
+  excel_autofilter: "Filtering…",
+  excel_create_table: "Creating a table…",
+  excel_add_table_rows: "Adding table rows…",
+  excel_create_chart: "Creating a chart…",
+  excel_set_column_width: "Resizing columns…",
+  excel_set_row_height: "Resizing rows…",
   // Common Claude Code tools
   Read: "Reading a file…",
   Write: "Writing a file…",
@@ -742,6 +774,33 @@ async function runOfficeTool(msg) {
       case "office_get_outline":
         result = await toolGetOutline();
         break;
+      case "office_set_list":
+        result = await toolSetList(writeArgs());
+        break;
+      case "office_insert_image":
+        result = await toolInsertImage(writeArgs());
+        break;
+      case "office_insert_hyperlink":
+        result = await toolInsertHyperlink(writeArgs());
+        break;
+      case "office_insert_bookmark":
+        result = await toolInsertBookmark(args);
+        break;
+      case "office_find":
+        result = await toolFind(args);
+        break;
+      case "office_list_comments":
+        result = await toolListComments();
+        break;
+      case "office_reply_to_comment":
+        result = await toolReplyToComment(args);
+        break;
+      case "office_resolve_comment":
+        result = await toolResolveComment(args);
+        break;
+      case "office_header_footer":
+        result = await toolHeaderFooter(args);
+        break;
       // ---- Excel ----
       case "excel_get_selected_range":
         result = await toolExcelGetSelectedRange();
@@ -790,6 +849,27 @@ async function runOfficeTool(msg) {
         break;
       case "excel_clear_range":
         result = await toolExcelClearRange(args);
+        break;
+      case "excel_sort_range":
+        result = await toolExcelSortRange(args);
+        break;
+      case "excel_autofilter":
+        result = await toolExcelAutoFilter(args);
+        break;
+      case "excel_create_table":
+        result = await toolExcelCreateTable(args);
+        break;
+      case "excel_add_table_rows":
+        result = await toolExcelAddTableRows(args);
+        break;
+      case "excel_create_chart":
+        result = await toolExcelCreateChart(args);
+        break;
+      case "excel_set_column_width":
+        result = await toolExcelSetColumnWidth(args);
+        break;
+      case "excel_set_row_height":
+        result = await toolExcelSetRowHeight(args);
         break;
       default:
         throw new Error(`Unknown tool: ${name}`);

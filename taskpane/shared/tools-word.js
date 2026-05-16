@@ -1087,3 +1087,208 @@ export async function toolGetOutline() {
     return { heading_count: outline.length, outline };
   });
 }
+
+// ---------------------------------------------------------------------------
+// Tier 2 editing tools — lists / media / links / find / comments / chrome
+// ---------------------------------------------------------------------------
+
+// Tool: office_set_list — turn existing paragraphs into a bulleted or
+// numbered list (the first becomes a new list; the rest attach to it).
+export async function toolSetList({ ids, ordered, track_changes }) {
+  if (!Array.isArray(ids) || ids.length === 0) throw new Error("ids must be non-empty");
+  return await Word.run(async (context) => {
+    return await withTrackChanges(context, track_changes, async () => {
+      const { paragraphs, idMode } = await getParagraphsWithIds(context);
+      const targets = resolveTargets(paragraphs, idMode, ids);
+      const list = targets[0].paragraph.startNewList();
+      list.load("id");
+      await context.sync();
+      for (let i = 1; i < targets.length; i++) {
+        targets[i].paragraph.attachToList(list.id, 0);
+      }
+      if (ordered) {
+        list.setLevelNumbering(0, Word.ListNumbering.arabic, ["%1."]);
+      } else {
+        list.setLevelBullet(0, Word.ListBullet.solid);
+      }
+      await context.sync();
+      return { list_count: targets.length, ordered: !!ordered, paragraph_ids: ids };
+    });
+  });
+}
+
+// Tool: office_insert_image — insert an inline picture from base64 (the
+// agent obtains it with e.g. `base64 -i path`). Appended at the end of the
+// body, or after a given paragraph.
+export async function toolInsertImage({ base64, after_paragraph_id, alt_text, track_changes }) {
+  if (typeof base64 !== "string" || !base64.trim()) {
+    throw new Error("`base64` (a base64-encoded image) is required.");
+  }
+  const clean = base64.replace(/^data:image\/[a-z]+;base64,/i, "").trim();
+  return await Word.run(async (context) => {
+    return await withTrackChanges(context, track_changes, async () => {
+      let pic;
+      if (after_paragraph_id) {
+        const { paragraphs, idMode } = await getParagraphsWithIds(context);
+        const idx = findIndexById(paragraphs, after_paragraph_id, idMode);
+        if (idx === -1) throw new Error(`Paragraph not found: ${after_paragraph_id}`);
+        pic = paragraphs.items[idx]
+          .getRange(Word.RangeLocation.after)
+          .insertInlinePictureFromBase64(clean, Word.InsertLocation.after);
+      } else {
+        pic = context.document.body.insertInlinePictureFromBase64(clean, Word.InsertLocation.end);
+      }
+      if (alt_text) pic.altTextDescription = alt_text;
+      await context.sync();
+      return { inserted: true, anchored: after_paragraph_id || "end_of_document" };
+    });
+  });
+}
+
+// Resolve a paragraph + optional sub-string query to a Range (shared by
+// hyperlink/bookmark). Returns the whole paragraph range when no query.
+async function rangeForParagraphQuery(context, paragraph_id, query) {
+  const { paragraphs, idMode } = await getParagraphsWithIds(context);
+  const idx = findIndexById(paragraphs, paragraph_id, idMode);
+  if (idx === -1) throw new Error(`Paragraph not found: ${paragraph_id}`);
+  const paragraph = paragraphs.items[idx];
+  if (!query) return paragraph.getRange();
+  const found = paragraph.search(query, { matchCase: false });
+  found.load("items");
+  await context.sync();
+  if (found.items.length === 0) {
+    throw new Error(`Query "${query}" not found in paragraph ${paragraph_id}`);
+  }
+  return found.items[0];
+}
+
+// Tool: office_insert_hyperlink — make text (a query within a paragraph, or
+// the whole paragraph) a hyperlink.
+export async function toolInsertHyperlink({ paragraph_id, query, url, track_changes }) {
+  if (!paragraph_id) throw new Error("`paragraph_id` is required.");
+  if (typeof url !== "string" || !url.trim()) throw new Error("`url` is required.");
+  return await Word.run(async (context) => {
+    return await withTrackChanges(context, track_changes, async () => {
+      const range = await rangeForParagraphQuery(context, paragraph_id, query);
+      range.hyperlink = url;
+      await context.sync();
+      return { paragraph_id, anchored_on: query || "whole_paragraph", url };
+    });
+  });
+}
+
+// Tool: office_insert_bookmark — drop a named bookmark on a paragraph or a
+// text query within it.
+export async function toolInsertBookmark({ paragraph_id, query, name }) {
+  if (!paragraph_id) throw new Error("`paragraph_id` is required.");
+  if (typeof name !== "string" || !name.trim()) throw new Error("`name` is required.");
+  return await Word.run(async (context) => {
+    const range = await rangeForParagraphQuery(context, paragraph_id, query);
+    try {
+      range.insertBookmark(name);
+      await context.sync();
+    } catch (e) {
+      throw new Error(`Bookmarks are not supported on this Word build (${e?.message ?? e}).`);
+    }
+    return { paragraph_id, anchored_on: query || "whole_paragraph", bookmark: name };
+  });
+}
+
+// Tool: office_find — search the document; reports matches with the
+// containing paragraph ID so the agent can follow up with an edit tool.
+export async function toolFind({ query, match_case, whole_word, wildcards }) {
+  if (typeof query !== "string" || !query.length) throw new Error("`query` is required.");
+  return await Word.run(async (context) => {
+    const results = context.document.body.search(query, {
+      matchCase: !!match_case,
+      matchWholeWord: !!whole_word,
+      matchWildcards: !!wildcards,
+    });
+    results.load("items/text");
+    await context.sync();
+    const items = results.items.slice(0, 200);
+    for (const r of items) r.paragraphs.load("items/uniqueLocalId");
+    await context.sync();
+    const matches = items.map((r) => {
+      const p = r.paragraphs.items[0];
+      return { text: r.text, paragraph_id: p ? p.uniqueLocalId : null };
+    });
+    return { query, match_count: results.items.length, matches };
+  });
+}
+
+async function getCommentsLoaded(context, fields) {
+  const comments = context.document.body.getComments();
+  comments.load(fields);
+  await context.sync();
+  return comments;
+}
+
+// Tool: office_list_comments — every comment with id/author/text/resolved.
+export async function toolListComments() {
+  return await Word.run(async (context) => {
+    const comments = await getCommentsLoaded(
+      context,
+      "items/id, items/authorName, items/content, items/resolved",
+    );
+    return {
+      comment_count: comments.items.length,
+      comments: comments.items.map((c) => ({
+        id: c.id,
+        author: c.authorName,
+        text: c.content,
+        resolved: c.resolved,
+      })),
+    };
+  });
+}
+
+// Tool: office_reply_to_comment — add a reply to a comment thread by id.
+export async function toolReplyToComment({ comment_id, text }) {
+  if (!comment_id) throw new Error("`comment_id` is required.");
+  if (typeof text !== "string" || !text.trim()) throw new Error("`text` is required.");
+  return await Word.run(async (context) => {
+    const comments = await getCommentsLoaded(context, "items/id");
+    const c = comments.items.find((x) => x.id === comment_id);
+    if (!c) throw new Error(`Comment not found: ${comment_id}`);
+    c.reply(text);
+    await context.sync();
+    return { comment_id, replied: true };
+  });
+}
+
+// Tool: office_resolve_comment — mark a comment resolved (or reopen it).
+export async function toolResolveComment({ comment_id, resolved = true }) {
+  if (!comment_id) throw new Error("`comment_id` is required.");
+  return await Word.run(async (context) => {
+    const comments = await getCommentsLoaded(context, "items/id, items/resolved");
+    const c = comments.items.find((x) => x.id === comment_id);
+    if (!c) throw new Error(`Comment not found: ${comment_id}`);
+    c.resolved = !!resolved;
+    await context.sync();
+    return { comment_id, resolved: !!resolved };
+  });
+}
+
+// Tool: office_header_footer — set the primary header or footer text on
+// every section (replaces existing content).
+export async function toolHeaderFooter({ which, text }) {
+  if (which !== "header" && which !== "footer") {
+    throw new Error("`which` must be 'header' or 'footer'.");
+  }
+  return await Word.run(async (context) => {
+    const sections = context.document.sections;
+    sections.load("items");
+    await context.sync();
+    for (const section of sections.items) {
+      const hf =
+        which === "header"
+          ? section.getHeader(Word.HeaderFooterType.primary)
+          : section.getFooter(Word.HeaderFooterType.primary);
+      hf.clear();
+      hf.insertText(text ?? "", Word.InsertLocation.start);
+    }
+    await context.sync();
+    return { which, sections: sections.items.length, set: true };
+  });
+}
