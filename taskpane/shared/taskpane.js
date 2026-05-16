@@ -422,12 +422,31 @@ function wsSend(obj) {
   ws.send(JSON.stringify(obj));
 }
 
+// Stable per-pane-instance id. sessionStorage persists for the lifetime
+// of this task pane (survives WS reconnects and panel reloads, cleared
+// when the pane is closed), so an unsaved/cloud doc with no filesystem
+// path still gets a STABLE bridge key across the 1.5s reconnect loop —
+// without this the bridge minted a fresh random key every retry and
+// leaked per-pane state. Falls back to an in-memory id if
+// sessionStorage is unavailable.
+let panePersistId;
+try {
+  panePersistId = sessionStorage.getItem("cc-pane-id");
+  if (!panePersistId) {
+    panePersistId = crypto?.randomUUID?.() ?? "p_" + Math.random().toString(36).slice(2, 12);
+    sessionStorage.setItem("cc-pane-id", panePersistId);
+  }
+} catch {
+  panePersistId = crypto?.randomUUID?.() ?? "p_" + Math.random().toString(36).slice(2, 12);
+}
+
 function sendHello() {
   wsSend({
     type: "hello",
     token: bridgeToken,
     host: HOST,
     active_doc: activeDocUrl,
+    pane_id: panePersistId,
     selection: attachSelection ? lastSelection : null,
     track_changes_mode: settings.trackChangesMode || "always",
   });
