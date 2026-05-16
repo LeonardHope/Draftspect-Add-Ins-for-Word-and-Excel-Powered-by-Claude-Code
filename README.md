@@ -240,6 +240,16 @@ The SDK prefers `ANTHROPIC_API_KEY` over keychain OAuth when present.
 
 ---
 
+## Security & privacy
+
+This is a single-user, run-it-yourself tool. The threat model is "your own machine, your own documents" — not a hardened multi-tenant service. Specifics worth knowing:
+
+- **The `.docx`/`.xlsx` filesystem-write denial is a foot-gun guard, not a security boundary.** It refuses obvious `Write`/`Edit`/`Bash` attempts to overwrite an open Office file (which would corrupt it), but it is regex-based and an agent determined to bypass it (string-built paths, `base64`-decoded payloads, etc.) can. It exists to stop *accidental* clobbering, not to contain a hostile agent. Edit Office files through the `office_*` / `excel_*` tools, not the filesystem.
+- **The local bridge is loopback-only and token-gated, but trusts every process running as you.** The WebSocket bridge binds `127.0.0.1` and requires a per-daemon 24-byte token; `/bridge-token` serves that token over same-origin HTTP. Browser cross-origin reads are blocked by CORS, but any *local process* running as your user (another app, a script) can read the token file and the endpoint. There's no protection against a malicious local process — out of scope for a personal tool.
+- **`daemon.log` records your message text verbatim.** Every chat message you send is written in plaintext to `~/.claude/office-addins/daemon.log` (diagnostics, reachable from the tray menu). If you put confidential documents or prompts through the tool, treat that log as sensitive — it's not redacted. Delete it to scrub history.
+
+---
+
 ## Developing
 
 ### File layout
