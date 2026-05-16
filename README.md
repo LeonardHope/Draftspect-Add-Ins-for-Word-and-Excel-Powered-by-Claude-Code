@@ -27,11 +27,13 @@ Short version: if you want zero-setup and don't need machine-local context, the 
 
 ## What it looks like
 
-**Word** — surgical, tracked edits and margin comments, driven from the side pane:
+Two snapshots below — but the side pane is a full conversational agent, so what it _does_ is whatever you ask of the document, not a fixed set of buttons.
+
+**Word** — _shown:_ surgical, tracked edits with margin comments. It also rewrites sections, inserts content, sweeps for issues and highlights them by severity, and answers from your context files — every change reviewable as a tracked change.
 
 ![Draftspect for Word — tracked changes and comments in a document](docs/images/word-demo.png)
 
-**Excel** — reads and writes ranges, adds live `=SUM()` formulas, finds and selects cells:
+**Excel** — _shown:_ a range written with a live `=SUM()` total row. It also reads and explains ranges, finds and selects cells, inserts/deletes rows, and works across sheets — all from the same chat, with formulas written as formulas (not baked-in numbers).
 
 ![Draftspect for Excel — a sales sheet with a formula-driven total row](docs/images/excel-demo.png)
 
