@@ -7,6 +7,13 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
   if (!token) throw new Error("createBridge requires a token");
   const wss = new WebSocketServer({
     port,
+    // Bind to loopback only. The `ws` library defaults to 0.0.0.0 when
+    // given just `port`, which exposes the bridge to the local network.
+    // This is a local-only IPC channel (taskpane <-> daemon on the same
+    // machine), so it should never be reachable off-host regardless of
+    // the token + origin gates below. Matches the HTTP server in
+    // index.mjs, which already binds 127.0.0.1.
+    host: "127.0.0.1",
     // First gate: only allow upgrades from known origins (the taskpane's
     // origin = our own HTTP server's). Browsers honor the Origin header on
     // WebSocket upgrades; rejecting unknown origins blocks malicious local
@@ -255,5 +262,9 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
     sendAssistantEvent,
     getContext: () => ({ ...activeContext }),
     isTaskpaneConnected: () => activeWs?.readyState === activeWs?.OPEN,
+    // Test/observability surface: the bound address (null until listening)
+    // and a clean shutdown. Used by the loopback-bind unit test.
+    address: () => wss.address(),
+    close: () => new Promise((resolve) => wss.close(resolve)),
   };
 }
