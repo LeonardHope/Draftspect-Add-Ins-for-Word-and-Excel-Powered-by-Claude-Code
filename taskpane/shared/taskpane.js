@@ -330,7 +330,7 @@ const SETTINGS_KEY = "claude-code-office-settings-v1";
 
 function defaultSettings() {
   return {
-    showDiagnostics: true,
+    showDiagnostics: false,
     trackChangesMode: "always", // "always" | "modifications" | "never"
   };
 }
