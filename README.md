@@ -13,12 +13,10 @@ Everything runs on your computer; only API calls go to Anthropic.
 
 ## Status
 
-Single-user, run-it-yourself — deliberately scoped, not a hardened product (see [Security & privacy](#security--privacy)). Macs are the daily-driver platform; Windows works (tested in a Parallels VM).
+Single-user tool you run on your own machine — intentionally scoped, not a hardened multi-tenant service (see [Security & privacy](#security--privacy)). macOS is the primary platform; Windows is supported and tested under Parallels.
 
-- **Word** — mature; this is where most of the polish lives.
+- **Word** — the more mature surface; most of the polish is here.
 - **Excel** — newer; the tools work but the UX trails Word.
-
-Generalized from [Patspect](https://github.com/LeonardHope), a private patent-drafting-specific Word add-in. This is a fork, not a shared package — fixes are ported across by hand.
 
 ---
 
@@ -71,7 +69,7 @@ That's it. A tray icon (menu bar on macOS, system tray on Windows) appears. The 
 
 Open Word or Excel, go to **Insert → Office Add-ins → Shared Folder**, and pick _Claude Code for Word_ or _Claude Code for Excel_.
 
-> **One install per host.** The manifests use fixed add-in `<Id>` GUIDs, so a single Word (or Excel) installation can only sideload one copy of this add-in at a time. If you also run the upstream patent-drafting build (Patspect) or a second clone of this repo, change the `<Id>` GUID in one clone's `manifests/word.xml` / `manifests/excel.xml` to a fresh UUID to run them side by side.
+> **One install per host.** The manifests use fixed add-in `<Id>` GUIDs, so a single Word (or Excel) installation can only sideload one copy of this add-in at a time. To run two clones side by side, change the `<Id>` GUID in one clone's `manifests/word.xml` / `manifests/excel.xml` to a fresh UUID.
 
 > **Daemon-only debugging.** If something's wrong and you want to see daemon output in the terminal, run `npm run dev` instead of `npm start`. Skips the Electron shell.
 
@@ -255,9 +253,9 @@ The SDK prefers `ANTHROPIC_API_KEY` over keychain OAuth when present.
 
 ## Security & privacy
 
-This is a single-user, run-it-yourself tool. The threat model is "your own machine, your own documents" — not a hardened multi-tenant service. Specifics worth knowing:
+This is a single-user tool you run on your own machine. The threat model is "your own machine, your own documents" — not a hardened multi-tenant service. Specifics worth knowing:
 
-- **The `.docx`/`.xlsx` filesystem-write denial is a foot-gun guard, not a security boundary.** It refuses obvious `Write`/`Edit`/`Bash` attempts to overwrite an open Office file (which would corrupt it), but it is regex-based and an agent determined to bypass it (string-built paths, `base64`-decoded payloads, etc.) can. It exists to stop _accidental_ clobbering, not to contain a hostile agent. Edit Office files through the `office_*` / `excel_*` tools, not the filesystem.
+- **The `.docx`/`.xlsx` filesystem-write denial is an accident guard, not a security boundary.** It refuses obvious `Write`/`Edit`/`Bash` attempts to overwrite an open Office file (which would corrupt it), but it is regex-based — an agent determined to bypass it (string-built paths, `base64`-decoded payloads, etc.) can. It exists to stop _accidental_ overwrites, not to contain a hostile agent. Edit Office files through the `office_*` / `excel_*` tools, not the filesystem.
 - **The local bridge is loopback-only and token-gated, but trusts every process running as you.** The WebSocket bridge binds `127.0.0.1` and requires a per-daemon 24-byte token; `/bridge-token` serves that token over same-origin HTTP. Browser cross-origin reads are blocked by CORS, but any _local process_ running as your user (another app, a script) can read the token file and the endpoint. There's no protection against a malicious local process — out of scope for a personal tool.
 - **`daemon.log` records your message text verbatim.** Every chat message you send is written in plaintext to `~/.claude/office-addins/daemon.log` (diagnostics, reachable from the tray menu). If you put confidential documents or prompts through the tool, treat that log as sensitive — it's not redacted. Delete it to scrub history.
 
