@@ -18,8 +18,13 @@ import { stat } from "node:fs/promises";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, "..");
 
-const WS_PORT = 47823;
-const HTTP_PORT = 47824;
+// NOTE: Draftspect deliberately uses 47833/47834 — distinct from the
+// sibling Patspect add-in's 47823/47824 — so both daemons can run at once
+// without fighting over the ports. Keep WS_PORT = HTTP_PORT - 1 (the
+// taskpane derives nothing; the WS port is referenced explicitly in
+// taskpane.js and the index.html CSP — change all three together).
+const WS_PORT = 47833;
+const HTTP_PORT = 47834;
 const HTTP_ORIGIN = `http://127.0.0.1:${HTTP_PORT}`;
 const TOKEN_FILE = join(homedir(), ".claude", "office-addins", "bridge-token");
 
