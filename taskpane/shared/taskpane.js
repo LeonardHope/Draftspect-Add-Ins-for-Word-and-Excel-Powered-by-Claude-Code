@@ -1622,7 +1622,7 @@ async function doSwitch(cwd, { autodetectFromDoc = false } = {}) {
     // Clear chat — visually distinguishing the new session from the old.
     $messages.innerHTML = "";
     assistantTurnElem = null;
-    // Refresh the workspace section so recent-folders ordering updates.
+    // Refresh the workspace section so the displayed cwd updates.
     loadWorkspaceSection();
   } catch (e) {
     $workspaceError.textContent = e.message;

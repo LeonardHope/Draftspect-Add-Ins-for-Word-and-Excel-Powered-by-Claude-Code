@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -31,6 +31,16 @@ async function withFakeHome(fn) {
   }
 }
 
+async function readStateFile(fakeHome) {
+  try {
+    const raw = await readFile(join(fakeHome, ".claude", "office-addins", "sessions.json"), "utf8");
+    return JSON.parse(raw);
+  } catch (e) {
+    if (e.code === "ENOENT") return null;
+    throw e;
+  }
+}
+
 test("getSessionId returns null when no state file exists", async () => {
   await withFakeHome(async ({ getSessionId }) => {
     assert.equal(await getSessionId("word", "/tmp/whatever"), null);
@@ -38,7 +48,7 @@ test("getSessionId returns null when no state file exists", async () => {
 });
 
 test("save → get round-trip is keyed by host AND cwd", async () => {
-  await withFakeHome(async ({ saveSessionId, getSessionId, getRecentFolders }) => {
+  await withFakeHome(async ({ saveSessionId, getSessionId }) => {
     await saveSessionId("word", "/tmp/folderA", "word-sid");
     await saveSessionId("excel", "/tmp/folderA", "excel-sid");
 
@@ -47,13 +57,6 @@ test("save → get round-trip is keyed by host AND cwd", async () => {
     assert.equal(await getSessionId("excel", "/tmp/folderA"), "excel-sid");
     // A host with no saved session here → null.
     assert.equal(await getSessionId("word", "/tmp/folderB"), null);
-
-    // The folder shows once in recents (host-agnostic switcher list).
-    const recent = await getRecentFolders(10);
-    assert.equal(recent.length, 1);
-    assert.equal(recent[0].cwd, "/tmp/folderA");
-    assert.equal(recent[0].display_name, "folderA");
-    assert.match(recent[0].last_used, /^\d{4}-\d{2}-\d{2}T/);
   });
 });
 
@@ -65,16 +68,10 @@ test("normalizeHost: a bad host is a no-op / null", async () => {
   });
 });
 
-test("touchFolder creates a recents entry without any session; save keeps it", async () => {
-  await withFakeHome(async ({ touchFolder, getRecentFolders, saveSessionId, getSessionId }) => {
+test("touchFolder does not clobber a saved session id", async () => {
+  await withFakeHome(async ({ touchFolder, saveSessionId, getSessionId }) => {
     await touchFolder("/tmp/folderB");
-    let recent = await getRecentFolders(10);
-    assert.equal(recent.length, 1);
-    assert.equal(recent[0].cwd, "/tmp/folderB");
     assert.equal(await getSessionId("word", "/tmp/folderB"), null);
-    const firstTouched = recent[0].last_used;
-
-    await new Promise((r) => setTimeout(r, 10));
 
     await saveSessionId("word", "/tmp/folderB", "w1");
     await touchFolder("/tmp/folderB");
@@ -83,46 +80,24 @@ test("touchFolder creates a recents entry without any session; save keeps it", a
       "w1",
       "touch must not blow away a saved session id",
     );
-    recent = await getRecentFolders(10);
-    assert.notEqual(recent[0].last_used, firstTouched, "touch bumps last_used");
-  });
-});
-
-test("getRecentFolders is newest-first, cwd-deduped, capped", async () => {
-  await withFakeHome(async ({ touchFolder, saveSessionId, getRecentFolders }) => {
-    await touchFolder("/tmp/older");
-    await new Promise((r) => setTimeout(r, 10));
-    // Two hosts in the same newer folder → still ONE recents row.
-    await saveSessionId("word", "/tmp/newer", "w");
-    await saveSessionId("excel", "/tmp/newer", "e");
-    const recent = await getRecentFolders(10);
-    assert.equal(recent.length, 2);
-    assert.equal(recent[0].cwd, "/tmp/newer", "newest first");
-    assert.equal(recent[1].cwd, "/tmp/older");
-  });
-});
-
-test("forgetFolder removes the folder and all its per-host sessions", async () => {
-  await withFakeHome(async ({ saveSessionId, getSessionId, forgetFolder, getRecentFolders }) => {
-    await saveSessionId("word", "/tmp/forgetme", "w");
-    await saveSessionId("excel", "/tmp/forgetme", "e");
-    await forgetFolder("/tmp/forgetme");
-    assert.equal(await getSessionId("word", "/tmp/forgetme"), null);
-    assert.equal(await getSessionId("excel", "/tmp/forgetme"), null);
-    assert.equal((await getRecentFolders(10)).length, 0);
   });
 });
 
 test("touchFolder silently drops disallowed system home children (macOS only)", async () => {
   if (process.platform !== "darwin") return; // The deny-list is macOS-specific.
-  await withFakeHome(async ({ touchFolder, getRecentFolders }, fakeHome) => {
+  await withFakeHome(async ({ touchFolder }, fakeHome) => {
     await touchFolder(join(fakeHome, "Library"));
-    assert.equal((await getRecentFolders(10)).length, 0, "Library never in recents");
+    const state = await readStateFile(fakeHome);
+    // touchFolder returns early for $HOME children — nothing persisted.
+    assert.ok(
+      state === null || !state.folders || Object.keys(state.folders).length === 0,
+      "an OS-managed $HOME child must never be persisted",
+    );
   });
 });
 
-test("migrates a v1 sessions.json: folder kept in recents, old id dropped", async () => {
-  await withFakeHome(async ({ getRecentFolders, getSessionId }, fakeHome) => {
+test("migrates a v1 sessions.json: the un-hostable old id is dropped", async () => {
+  await withFakeHome(async ({ getSessionId }, fakeHome) => {
     const dir = join(fakeHome, ".claude", "office-addins");
     await mkdir(dir, { recursive: true });
     const v1 = {
@@ -136,11 +111,8 @@ test("migrates a v1 sessions.json: folder kept in recents, old id dropped", asyn
       },
     };
     await writeFile(join(dir, "sessions.json"), JSON.stringify(v1));
-    const recent = await getRecentFolders(10);
-    assert.equal(recent.length, 1);
-    assert.equal(recent[0].cwd, "/tmp/legacy");
-    assert.equal(recent[0].display_name, "legacy");
-    // The un-hostable v1 id is intentionally not resumable post-migration.
+    // The v1 id can't be attributed to a host, so it's intentionally not
+    // resumable post-migration.
     assert.equal(await getSessionId("word", "/tmp/legacy"), null);
     assert.equal(await getSessionId("excel", "/tmp/legacy"), null);
   });
