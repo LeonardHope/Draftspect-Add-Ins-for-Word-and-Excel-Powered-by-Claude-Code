@@ -1,0 +1,17 @@
+node_modules/
+package-lock.json
+dist/
+*.png
+*.ico
+# Office manifests — prettier has no XML parser; leave them byte-stable
+# (Office is picky and they're hand-maintained).
+manifests/
+# Demo-workspace CLAUDE.md files are managed by the daemon at runtime
+# (it appends the CONTEXT-FILES block). Prettier must not reformat them
+# or the committed form would drift from what the daemon writes, and
+# running the demo would dirty the repo again.
+examples/*/CLAUDE.md
+
+# Local-only scratch (also gitignored).
+PORT_TO_OFFICE_ADDINS.md
+AGENTS.md

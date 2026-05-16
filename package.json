@@ -1,0 +1,37 @@
+{
+  "name": "draftspect-office-addins",
+  "version": "0.1.0",
+  "description": "Draftspect — Microsoft Office (Word + Excel) add-ins that bring your local Claude Code into Office. Powered by Claude.",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LeonardHope/Draftspect-Add-Ins-for-Word-and-Excel-Powered-by-Claude-Code.git"
+  },
+  "homepage": "https://github.com/LeonardHope/Draftspect-Add-Ins-for-Word-and-Excel-Powered-by-Claude-Code#readme",
+  "bugs": {
+    "url": "https://github.com/LeonardHope/Draftspect-Add-Ins-for-Word-and-Excel-Powered-by-Claude-Code/issues"
+  },
+  "main": "app/main.mjs",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "node daemon/index.mjs",
+    "app": "electron .",
+    "start": "electron .",
+    "test": "node --test tests/*.test.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.141",
+    "ws": "^8.16.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "electron": "^42.0.1",
+    "prettier": "3.8.3"
+  }
+}
