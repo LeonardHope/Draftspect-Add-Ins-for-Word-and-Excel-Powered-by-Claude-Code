@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "Draftspect — Microsoft Office (Word + Excel) add-ins that bring your local Claude Code into Office. Powered by Claude.",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LeonardHope/Draftspect-Add-Ins-for-Word-and-Excel-Powered-by-Claude-Code.git"
+  },
+  "homepage": "https://github.com/LeonardHope/Draftspect-Add-Ins-for-Word-and-Excel-Powered-by-Claude-Code#readme",
+  "bugs": {
+    "url": "https://github.com/LeonardHope/Draftspect-Add-Ins-for-Word-and-Excel-Powered-by-Claude-Code/issues"
+  },
   "main": "app/main.mjs",
   "type": "module",
   "engines": {
