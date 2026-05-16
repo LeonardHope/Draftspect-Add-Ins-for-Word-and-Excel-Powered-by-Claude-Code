@@ -568,6 +568,13 @@ async function startSessionForFolder(cwd, resumeSessionId = null) {
     (resumeSessionId ? ` (resuming ${resumeSessionId.slice(0, 8)}…)` : " (new session)")
   );
   bridge.sendAssistantEvent({ event: "cwd_changed", cwd, resumed: !!resumeSessionId });
+  // Structured readiness signal to the Electron shell over the IPC
+  // channel — the session loop is up. Lets main.mjs flip the tray to
+  // "Ready" without sniffing our stdout for a log substring. No-op when
+  // run via `npm run dev` (no IPC channel).
+  if (process.send) {
+    try { process.send({ type: "daemon_ready", cwd }); } catch { /* channel gone */ }
+  }
   // Replay the new workspace's transcript so the panel reflects the
   // workspace you just switched to (not the previous one's chat).
   sendTranscriptReplay().catch(() => {});

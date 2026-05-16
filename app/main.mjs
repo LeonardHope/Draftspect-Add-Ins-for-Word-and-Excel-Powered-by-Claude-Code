@@ -156,7 +156,19 @@ function restartDaemon() {
 // recent items — everything a synthetic in-page modal can't do).
 // --------------------------------------------------------------------------
 async function handleDaemonMessage(msg) {
-  if (!msg || msg.type !== "pick_path") return;
+  if (!msg) return;
+  // Structured readiness signal over the IPC channel — replaces sniffing
+  // stdout for a log substring (fragile: log copy changes, line
+  // chunking). The stdout heuristic below is kept as a fallback for any
+  // path that doesn't emit this.
+  if (msg.type === "daemon_ready") {
+    daemonStatus = "running";
+    restartAttempts = 0;
+    if (msg.cwd) currentWorkspace = msg.cwd;
+    updateTray();
+    return;
+  }
+  if (msg.type !== "pick_path") return;
   const reply = (payload) => {
     try { daemonProcess?.send({ type: "pick_path_result", id: msg.id, ...payload }); }
     catch (err) { logStream?.write(`[app] failed to reply to pick_path: ${err.message}\n`); }
