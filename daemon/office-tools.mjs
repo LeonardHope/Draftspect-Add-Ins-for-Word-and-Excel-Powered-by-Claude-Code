@@ -15,9 +15,22 @@ function asMcpError(err) {
  * Build the office-bridge MCP server. Tools forward calls over the WS bridge
  * to the taskpane, which executes them in Office.js and returns results.
  *
+ * `host` scopes which tool family is registered:
+ *   - "word"  → only the office_* tools
+ *   - "excel" → only the excel_* tools
+ *   - null    → both (used before a taskpane has said hello — at that
+ *               point nothing can run anyway; the session is re-narrowed
+ *               to the real host on first hello)
+ *
+ * Registering only the active host's family (instead of both, then
+ * rejecting wrong-host calls at dispatch) means the agent never sees a
+ * tool it can't use — the wrong-host class of mistake is structurally
+ * impossible, not just caught.
+ *
  * @param {{ callTaskpaneTool: (name: string, args: object) => Promise<any> }} bridge
+ * @param {"word"|"excel"|null} host
  */
-export function createOfficeBridgeMcp(bridge) {
+export function createOfficeBridgeMcp(bridge, host = null) {
   const call = (name, args) => bridge.callTaskpaneTool(name, args);
 
   const office_get_selection = tool(
@@ -417,6 +430,30 @@ export function createOfficeBridgeMcp(bridge) {
     },
   );
 
+  const wordTools = [
+    office_get_selection,
+    office_read_paragraphs,
+    office_insert_paragraphs,
+    office_replace_paragraphs,
+    office_replace_text,
+    office_replace_section,
+    office_highlight,
+    office_clear_highlights,
+    office_add_comment,
+    office_clear_comments,
+  ];
+  const excelTools = [
+    excel_get_selected_range,
+    excel_list_sheets,
+    excel_read_range,
+    excel_write_range,
+    excel_find_value,
+    excel_insert_rows,
+    excel_delete_rows,
+  ];
+  const tools =
+    host === "word" ? wordTools : host === "excel" ? excelTools : [...wordTools, ...excelTools];
+
   return createSdkMcpServer({
     name: "office",
     version: "0.1.0",
@@ -424,26 +461,6 @@ export function createOfficeBridgeMcp(bridge) {
     // behind tool-search. They are the only sanctioned editing path for the
     // active Office document.
     alwaysLoad: true,
-    tools: [
-      // Word tools
-      office_get_selection,
-      office_read_paragraphs,
-      office_insert_paragraphs,
-      office_replace_paragraphs,
-      office_replace_text,
-      office_replace_section,
-      office_highlight,
-      office_clear_highlights,
-      office_add_comment,
-      office_clear_comments,
-      // Excel tools
-      excel_get_selected_range,
-      excel_list_sheets,
-      excel_read_range,
-      excel_write_range,
-      excel_find_value,
-      excel_insert_rows,
-      excel_delete_rows,
-    ],
+    tools,
   });
 }

@@ -204,6 +204,33 @@ async function sendTranscriptReplay() {
   }
 }
 
+// Called on every taskpane hello. The session may have been started before
+// any pane connected (host unknown → both tool families registered) or for
+// a different host (the user moved to a Word doc after an Excel one). If
+// the connected host doesn't match the session's registered tool family,
+// restart the session for the same cwd+sessionId narrowed to that host —
+// the restart resumes the conversation and emits its own cwd_changed +
+// transcript replay, so we skip the standalone replay in that case.
+// Otherwise just replay the transcript for the (re)connected pane.
+function maybeRenarrowForHost() {
+  const host = bridge.getContext().host ?? null;
+  if (host && currentSession && currentSession.toolHost !== host) {
+    const { cwd, sessionId } = currentSession;
+    console.log(
+      `[daemon] Host is ${host}; session tools were ${currentSession.toolHost ?? "both"} — re-narrowing`,
+    );
+    // Defer past the bridge's message handler (matches the post-stop /
+    // stream-end restart pattern).
+    setImmediate(() => {
+      startSessionForFolder(cwd, sessionId, { host }).catch((err) =>
+        console.error("[daemon] host re-narrow restart failed:", err?.message ?? err),
+      );
+    });
+    return;
+  }
+  sendTranscriptReplay().catch(() => {});
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket bridge.
 // ---------------------------------------------------------------------------
@@ -211,7 +238,7 @@ const bridge = createBridge({
   port: WS_PORT,
   token: BRIDGE_TOKEN,
   allowedOrigins: [HTTP_ORIGIN],
-  onHello: () => sendTranscriptReplay(),
+  onHello: () => maybeRenarrowForHost(),
   extraHandlers: {
     pick_path: async (msg, reply) => {
       try {
@@ -374,8 +401,9 @@ const bridge = createBridge({
 
 // ---------------------------------------------------------------------------
 // Office-bridge MCP server (in-process; forwards tool calls to the taskpane).
+// Built per session so the registered tool family matches the connected
+// host (see startSessionForFolder / the host re-narrow on hello).
 // ---------------------------------------------------------------------------
-const officeMcp = createOfficeBridgeMcp(bridge);
 
 // ---------------------------------------------------------------------------
 // Load the user's MCP servers from ~/.claude.json — the same file the
@@ -625,7 +653,7 @@ function getCurrentCwd() {
   return currentSession?.cwd ?? null;
 }
 
-async function startSessionForFolder(cwd, resumeSessionId = null) {
+async function startSessionForFolder(cwd, resumeSessionId = null, { host = null } = {}) {
   // Stop any prior session before starting a new one.
   if (currentSession) {
     currentSession.abortController.abort();
@@ -633,8 +661,19 @@ async function startSessionForFolder(cwd, resumeSessionId = null) {
   }
 
   const abortController = new AbortController();
-  const session = { cwd, sessionId: resumeSessionId, abortController, settled: false };
+  const session = {
+    cwd,
+    sessionId: resumeSessionId,
+    abortController,
+    settled: false,
+    toolHost: host,
+  };
   currentSession = session;
+
+  // Register only the connected host's tool family (or both when no
+  // taskpane has said hello yet — nothing can run at that point anyway;
+  // the first hello re-narrows via maybeRenarrowForHost).
+  const officeMcp = createOfficeBridgeMcp(bridge, host);
 
   await touchFolder(cwd);
   console.log(
@@ -719,9 +758,9 @@ async function startSessionForFolder(cwd, resumeSessionId = null) {
           : "The agent stopped unexpectedly — this is usually a Claude usage limit. Wait for your limit to reset, or set ANTHROPIC_API_KEY to use an API key.";
         bridge.sendAssistantEvent({ event: "error", error: friendly });
         bridge.sendAssistantEvent({ event: "turn_complete", subtype: "stream_ended" });
-        const { cwd: rcwd, sessionId: rsid } = session;
+        const { cwd: rcwd, sessionId: rsid, toolHost: rhost } = session;
         setImmediate(() => {
-          startSessionForFolder(rcwd, rsid).catch((restartErr) =>
+          startSessionForFolder(rcwd, rsid, { host: rhost ?? null }).catch((restartErr) =>
             console.error("[daemon] post-stream-end session restart failed:", restartErr.message),
           );
         });
@@ -739,9 +778,9 @@ async function startSessionForFolder(cwd, resumeSessionId = null) {
         // startSessionForFolder then builds cleanly.
         if (currentSession === session && session.interrupted) {
           bridge.sendAssistantEvent({ event: "turn_complete", interrupted: true });
-          const { cwd: rcwd, sessionId: rsid } = session;
+          const { cwd: rcwd, sessionId: rsid, toolHost: rhost } = session;
           setImmediate(() => {
-            startSessionForFolder(rcwd, rsid).catch((restartErr) =>
+            startSessionForFolder(rcwd, rsid, { host: rhost ?? null }).catch((restartErr) =>
               console.error("[daemon] post-stop session restart failed:", restartErr.message),
             );
           });
@@ -778,7 +817,9 @@ async function switchFolder(rawCwd) {
   const s = await stat(cwd);
   if (!s.isDirectory()) throw new Error(`Not a directory: ${cwd}`);
   const saved = await getSessionForFolder(cwd);
-  await startSessionForFolder(cwd, saved?.session_id ?? null);
+  // Preserve the connected host's tool family across the workspace switch.
+  const host = bridge.getContext().host ?? null;
+  await startSessionForFolder(cwd, saved?.session_id ?? null, { host });
   return cwd;
 }
 
@@ -789,9 +830,10 @@ async function restartCurrentSession({ reason = "config_changed" } = {}) {
   if (!currentSession) return;
   const cwd = currentSession.cwd;
   const sessionId = currentSession.sessionId;
+  const host = currentSession.toolHost ?? null;
   console.log(`[daemon] Restarting session for ${cwd} (reason: ${reason})`);
   bridge.sendAssistantEvent({ event: "config_reloaded", reason });
-  await startSessionForFolder(cwd, sessionId);
+  await startSessionForFolder(cwd, sessionId, { host });
 }
 
 function handleAgentMessage(msg, session = currentSession) {
