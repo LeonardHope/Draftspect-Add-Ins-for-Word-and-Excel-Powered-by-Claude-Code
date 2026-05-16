@@ -103,35 +103,14 @@ export async function saveSessionId(host, cwd, sessionId) {
   await writeState(state);
 }
 
-// Mark a folder as recently used (no session_id change). Skips
-// OS-managed $HOME children so they never enter the recents list.
+// Touch a folder's bookkeeping (last_used / display_name) without changing
+// any session id. Ensures the folder entry exists for the per-host session
+// store. Skips OS-managed $HOME children so they never get persisted.
 export async function touchFolder(cwd) {
   if (!isAllowedMatterPath(cwd)) return;
   const state = await readState();
   const f = ensureFolder(state, cwd);
   f.last_used = new Date().toISOString();
   f.display_name = basename(cwd);
-  await writeState(state);
-}
-
-// Recent workspace folders, newest first, host-agnostic — this feeds the
-// folder switcher, which picks a folder (not a folder+host).
-export async function getRecentFolders(limit = 10) {
-  const state = await readState();
-  return Object.entries(state.folders)
-    .filter(([cwd]) => isAllowedMatterPath(cwd))
-    .map(([cwd, info]) => ({
-      cwd,
-      last_used: info.last_used,
-      display_name: info.display_name ?? basename(cwd),
-    }))
-    .sort((a, b) => (b.last_used || "").localeCompare(a.last_used || ""))
-    .slice(0, limit);
-}
-
-// Drop a folder entirely (all its per-host sessions go with it).
-export async function forgetFolder(cwd) {
-  const state = await readState();
-  delete state.folders[cwd];
   await writeState(state);
 }

@@ -305,64 +305,6 @@ body {
   letter-spacing: 0.5px;
   margin: 14px 0 6px;
 }
-.recent-folders {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 200px;
-  overflow-y: auto;
-}
-.recent-folder-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 13px;
-}
-.recent-folder-row:hover {
-  background: var(--bubble-asst);
-}
-.recent-folder-row.active {
-  background: var(--bubble-user);
-}
-.recent-folder-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-.recent-folder-name {
-  font-weight: 500;
-  color: var(--fg);
-}
-.recent-folder-path {
-  color: var(--fg-muted);
-  font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.recent-folder-forget {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--fg-muted);
-  font-size: 13px;
-  padding: 2px 6px;
-  border-radius: 3px;
-  opacity: 0;
-  transition: opacity 0.1s;
-}
-.recent-folder-row:hover .recent-folder-forget {
-  opacity: 1;
-}
-.recent-folder-forget:hover {
-  background: var(--border);
-}
-
 /* The icon button on the right edge of the topbar (settings gear) reserves
    margin so it clears Word's built-in info button. */
 .topbar .icon-btn {

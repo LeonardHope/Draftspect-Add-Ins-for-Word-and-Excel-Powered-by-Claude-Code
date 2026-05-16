@@ -9,13 +9,7 @@ import { createBridge } from "./bridge.mjs";
 import { createOfficeBridgeMcp } from "./office-tools.mjs";
 import { resolveWorkspaceRoot, suggestWorkspaceRoot, ensureWorkspaceMarker } from "./workspace.mjs";
 import { randomUUID } from "node:crypto";
-import {
-  getSessionId,
-  saveSessionId,
-  touchFolder,
-  getRecentFolders,
-  forgetFolder,
-} from "./sessions.mjs";
+import { getSessionId, saveSessionId, touchFolder } from "./sessions.mjs";
 import { readTranscript } from "./transcript.mjs";
 import { diag } from "./diag.mjs";
 import { getContextEntries, setContextEntries } from "./context.mjs";
@@ -396,14 +390,12 @@ const bridge = createBridge({
       }
     },
     get_cwd_state: async (msg, reply, key) => {
-      const recent = await getRecentFolders();
       reply({
         type: "get_cwd_state_result",
         ok: true,
         // This pane's own workspace, resolvable even before its first
         // message (lazy start ⇒ no session yet).
         current_cwd: cwdForKey(key),
-        recent,
         request_id: msg.request_id,
       });
     },
@@ -423,19 +415,6 @@ const bridge = createBridge({
           type: "stop_agent_result",
           ok: false,
           error: "No active agent turn",
-          request_id: msg.request_id,
-        });
-      }
-    },
-    forget_folder: async (msg, reply) => {
-      try {
-        await forgetFolder(msg.cwd);
-        reply({ type: "forget_folder_result", ok: true, request_id: msg.request_id });
-      } catch (e) {
-        reply({
-          type: "forget_folder_result",
-          ok: false,
-          error: e.message,
           request_id: msg.request_id,
         });
       }
