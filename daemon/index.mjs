@@ -673,12 +673,26 @@ async function buildSystemPromptAppend(host) {
 // occasionally falls back to unzipping .docx XML to extract text, which is
 // safe and read-only.
 // ---------------------------------------------------------------------------
-// Path/extension test for the Office-managed file types. We block writes to
-// these via Write/Edit/MultiEdit AND via Bash commands that mention them by
-// name. Not airtight (echo-redirects, base64-decoded payloads, etc. evade),
-// but it defends the obvious foot-gun: `cp draft.docx active.docx`,
-// `rm -rf workspace/*.docx`, `mv old.xlsx active.xlsx`.
+// Path/extension test for the Office-managed file types.
 const OFFICE_FILE_EXT = /\.(docx?|xlsx?|docm|xlsm)\b/i;
+
+// Bash is allowed to *read* Office files (the agent legitimately does
+// `unzip -p draft.docx word/document.xml`, `cat`, `git log -- report.docx`,
+// `ls *.docx`). We only deny commands that mutate one in place: a shell
+// redirection whose target is an Office path, or a destructive verb used
+// against one. This is an accident guard, not a security boundary — it
+// stops the obvious foot-gun (`cp draft.docx active.docx`,
+// `rm -rf workspace/*.docx`, `echo x > active.xlsx`, `sed -i … report.docx`),
+// not a determined evasion (base64 payloads, here-docs, etc.).
+const REDIR_TO_OFFICE = />>?\s*['"]?[^'"|;&\s]*\.(docx?|xlsx?|docm|xlsm)\b/i;
+const DESTRUCTIVE_VERB = /\b(rm|mv|cp|dd|shred|truncate|install|tee|ln)\b/i;
+const SED_IN_PLACE = /\bsed\b[^|;&]*\s-i\b/i;
+
+function bashMutatesOfficeFile(cmd) {
+  if (REDIR_TO_OFFICE.test(cmd)) return true;
+  if (!OFFICE_FILE_EXT.test(cmd)) return false;
+  return DESTRUCTIVE_VERB.test(cmd) || SED_IN_PLACE.test(cmd);
+}
 
 function denyWithOfficeMessage() {
   return {
@@ -700,7 +714,7 @@ function customPermissionHandler(toolName, input) {
   }
   if (toolName === "Bash") {
     const cmd = input?.command;
-    if (typeof cmd === "string" && OFFICE_FILE_EXT.test(cmd)) {
+    if (typeof cmd === "string" && bashMutatesOfficeFile(cmd)) {
       return Promise.resolve(denyWithOfficeMessage());
     }
   }

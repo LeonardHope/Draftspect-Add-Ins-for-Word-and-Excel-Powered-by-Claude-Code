@@ -41,7 +41,7 @@ Two snapshots below — but the side pane is a full conversational agent, so wha
 
 ## Status
 
-Single-user tool you run on your own machine — intentionally scoped, not a hardened multi-tenant service (see [Security & privacy](#security--privacy)). macOS is the primary, most-polished platform; Windows works and is actively being hardened.
+Single-user tool you run on your own machine — intentionally scoped, not a hardened multi-tenant service (see [Security & privacy](#security--privacy)). Development was done on a Mac; Windows has had only limited testing in a Parallels VM. macOS is the primary, most-polished platform; Windows works but is less exercised.
 
 - **Word** — the more mature surface.
 - **Excel** — newer; the tools work, the UX trails Word slightly.
@@ -225,7 +225,7 @@ Eight tools, A1 notation, 2D values arrays:
 
 ### What the agent will refuse
 
-- **Filesystem writes to the live document.** A permission guard refuses `Write`/`Edit`/`MultiEdit` against `.docx`/`.docm`/`.xlsx`/`.xlsm` paths, and `Bash` commands that look like they overwrite one. Office holds the document open with unsaved changes; a filesystem write would corrupt it — the agent uses the in-host tools instead. This is an **accident guard, not a security boundary**: it's heuristic and a determined agent can work around it (see [Security & privacy](#security--privacy)).
+- **Filesystem writes to the live document.** A permission guard refuses `Write`/`Edit`/`MultiEdit` against `.docx`/`.docm`/`.xlsx`/`.xlsm` paths, and `Bash` commands that mutate one in place (a redirection into an Office path, or `rm`/`mv`/`cp`/`tee`/`sed -i`/etc. against one). Reading is allowed — the agent legitimately does `unzip -p draft.docx …`, `cat`, or `git log -- report.docx`. Office holds the document open with unsaved changes; a filesystem write would corrupt it, so the agent uses the in-host tools instead. This is an **accident guard, not a security boundary**: it's heuristic and a determined agent can work around it (see [Security & privacy](#security--privacy)).
 
 ---
 
