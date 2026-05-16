@@ -10,7 +10,9 @@ live workbook. Run the prompts in order in the task pane.
 2. Open the Claude Code task pane.
 3. Workspace: it's this folder (`examples/excel-demo/`) — detected from the
    workbook's location, no prompt.
-4. Setup tab → Context files → add `q3-sales.csv`.
+4. Setup tab → Context files. `q3-sales.csv` is already listed (it's in
+   this folder's `CLAUDE.md`); you can re-add it via **+ Add file** to
+   see the flow — it's a harmless no-op.
 
 ## Prompts
 

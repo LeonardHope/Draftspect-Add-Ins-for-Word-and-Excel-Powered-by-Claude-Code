@@ -22,3 +22,13 @@ When asked to put data into the sheet:
   see the round-trip succeeded.
 
 Keep replies short; this is a demonstration, not a report.
+
+<!-- CONTEXT-FILES:BEGIN -->
+
+The following folders and files are background context the user has added for this workspace. Read them on demand — when the user's request involves a topic, term, or document name that one of these entries looks relevant to, use `Read` / `Glob` / `Grep` to consult them before answering.
+
+- (file) `q3-sales.csv`
+
+Each entry below is annotated with its kind (folder or file). Folder entries should be globbed when relevant. File entries are individual documents to read directly. Do not modify any of these files unless the user explicitly asks you to.
+
+<!-- CONTEXT-FILES:END -->
