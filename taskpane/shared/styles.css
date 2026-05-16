@@ -575,6 +575,22 @@ body {
 .composer textarea::placeholder {
   color: var(--fg-muted);
 }
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.composer-model {
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border-input);
+  border-radius: 5px;
+  cursor: pointer;
+}
 .composer button {
   align-self: flex-end;
   padding: 6px 14px;

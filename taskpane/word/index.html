@@ -64,7 +64,19 @@
 
       <form id="composer" class="composer">
         <textarea id="input" placeholder="Ask Claude…" rows="3" autofocus></textarea>
-        <button type="submit" id="send">Send</button>
+        <div class="composer-actions">
+          <select
+            id="composer-model"
+            class="composer-model"
+            title="Model — cheaper models use less of your monthly Claude credit"
+          >
+            <option value="haiku">Haiku · cheapest</option>
+            <option value="sonnet">Sonnet · balanced</option>
+            <option value="opus">Opus · most capable</option>
+            <option value="default">Claude Code default</option>
+          </select>
+          <button type="submit" id="send">Send</button>
+        </div>
       </form>
     </section>
 
