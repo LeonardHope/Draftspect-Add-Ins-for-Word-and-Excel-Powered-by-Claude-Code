@@ -1417,7 +1417,8 @@ const $addFolderError = document.getElementById("add-folder-error");
 const $addFolderSave = document.getElementById("add-folder-save");
 const $addFolderCancel = document.getElementById("add-folder-cancel");
 const $addFolderModalClose = document.getElementById("add-folder-modal-close");
-const $addFolderBrowse = document.getElementById("add-folder-browse");
+const $addFolderBrowseFile = document.getElementById("add-folder-browse-file");
+const $addFolderBrowseFolder = document.getElementById("add-folder-browse-folder");
 
 function openAddFolderModal() {
   $addFolderModalTitle.textContent = "Add folder or file";
@@ -1473,17 +1474,22 @@ async function pickPathNative({ start_path = null, include_files = false, title 
   return { path: r.path, kind: r.kind };
 }
 
-$addFolderBrowse.addEventListener("click", async () => {
+// Two single-mode pickers. A combined file+folder native dialog can't
+// exist on Windows (it degrades to folder-only, hiding files), so the
+// user explicitly chooses which kind to browse for.
+async function browseInto(includeFiles) {
   const startPath = $addFolderPath.value.trim() || currentWorkspaceCwd || null;
   try {
-    const picked = await pickPathNative({ start_path: startPath, include_files: true });
+    const picked = await pickPathNative({ start_path: startPath, include_files: includeFiles });
     if (!picked) return;
     $addFolderPath.value = picked.path;
     $addFolderDescription.focus();
   } catch (e) {
     console.error("[picker]", e);
   }
-});
+}
+$addFolderBrowseFile.addEventListener("click", () => browseInto(true));
+$addFolderBrowseFolder.addEventListener("click", () => browseInto(false));
 
 $addFolderPath.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {

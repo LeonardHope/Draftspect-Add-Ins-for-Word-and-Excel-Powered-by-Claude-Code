@@ -164,9 +164,12 @@ async function handleDaemonMessage(msg) {
     }
   };
   try {
-    const properties = msg.include_files
-      ? ["openFile", "openDirectory", "createDirectory"]
-      : ["openDirectory", "createDirectory"];
+    // Single-mode dialogs only. Windows cannot show a combined
+    // file+directory picker — ['openFile','openDirectory'] silently
+    // degrades to a directory-only selector there, so files never appear
+    // (the symptom: an empty chooser when adding a file context entry).
+    // Callers pick exactly one mode: include_files → file, else folder.
+    const properties = msg.include_files ? ["openFile"] : ["openDirectory", "createDirectory"];
     // We're tray-only (no app window), so the OS open panel surfaces
     // BEHIND whatever is frontmost (Word/Excel). macOS: force-focus the
     // app and the panel comes forward (dock is hidden, so nothing else
