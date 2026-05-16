@@ -170,14 +170,15 @@ function pickPathFromMain({ include_files, default_path, title, button_label }) 
 // getCurrentCwd without hitting a TDZ on this binding.
 let currentSession = null; // { cwd, sessionId, host, abortController, settled }
 
-// Resolve the session id to replay. Prefer the live session's id (set once
-// the SDK reports init); otherwise the id persisted for THIS (host, cwd)
-// — covers the window before the SDK has re-inited on a fresh launch, and
-// keeps Word's and Excel's transcripts separate.
-async function resolveReplaySessionId() {
-  if (currentSession?.sessionId) return currentSession.sessionId;
-  const host = bridge.getContext().host ?? currentSession?.host ?? null;
-  const cwd = currentSession?.cwd ?? getCurrentCwd();
+// Resolve the session id to replay for (host, cwd). Prefer the live
+// session's id when it's THIS host's running loop (set once the SDK
+// reports init); otherwise the id persisted for (host, cwd) — covers the
+// window before the SDK has re-inited, and keeps Word's and Excel's
+// transcripts separate.
+async function resolveReplaySessionId(host, cwd) {
+  if (currentSession?.host === host && currentSession?.sessionId) {
+    return currentSession.sessionId;
+  }
   if (!host || !cwd) return null;
   try {
     return (await getSessionId(host, cwd)) ?? null;
@@ -186,21 +187,24 @@ async function resolveReplaySessionId() {
   }
 }
 
-// Reconstruct the prior conversation from the resumed session's .jsonl and
-// push it to the taskpane. Sent on every taskpane hello and after each
+// Reconstruct (host, cwd)'s prior conversation from its .jsonl and push
+// it to THAT host's pane only. Sent on every taskpane hello and after a
 // workspace switch (cwd_changed). Empty events => fresh chat, no divider.
-async function sendTranscriptReplay() {
+async function sendTranscriptReplayTo(host, cwd) {
   try {
-    const sessionId = await resolveReplaySessionId();
+    const sessionId = await resolveReplaySessionId(host, cwd);
     const { events, truncated } = sessionId
       ? await readTranscript(sessionId, { maxEvents: 200 })
       : { events: [], truncated: false };
-    bridge.sendToTaskpane({
-      type: "transcript_replay",
-      session_id: sessionId ?? null,
-      truncated,
-      events,
-    });
+    bridge.sendToTaskpane(
+      {
+        type: "transcript_replay",
+        session_id: sessionId ?? null,
+        truncated,
+        events,
+      },
+      host,
+    );
   } catch (err) {
     console.warn("[daemon] transcript replay failed:", err?.message ?? err);
   }
@@ -211,36 +215,46 @@ async function sendTranscriptReplay() {
 // currentSession), so startSessionForFolder builds cleanly. Every path
 // that (re)starts a session — pane connect/host-switch, post-stream-end,
 // post-Stop — funnels through here; `reason` only flavors the failure log.
-function scheduleSessionStart(cwd, sessionId, host, reason) {
+function scheduleSessionStart(cwd, sessionId, host, reason, { replay = true } = {}) {
   setImmediate(() => {
-    startSessionForFolder(cwd, sessionId, { host: host ?? null }).catch((err) =>
+    startSessionForFolder(cwd, sessionId, { host: host ?? null, replay }).catch((err) =>
       console.error(`[daemon] ${reason} session start failed:`, err?.message ?? err),
     );
   });
 }
 
-// Called on every taskpane hello. Word and Excel are independent surfaces,
-// each with its own persistent session (own session_id + transcript) per
-// workspace. If the connected pane's (host, cwd) already matches the live
-// session, nothing to do but replay its transcript for the reconnected
-// pane. Otherwise switch to that pane's own session — resuming its prior
-// conversation if one is on record, else fresh. No "re-narrowing": a
-// session is born for one host and stays that host for life, so there's
-// no tool-family churn and no cross-host history bleed.
-async function ensureSessionForActivePane() {
-  const host = bridge.getContext().host ?? null;
-  const cwd = currentSession?.cwd ?? getCurrentCwd() ?? matterFolder;
-  if (!host) {
-    // No host on the hello (shouldn't happen) — just replay whatever we have.
-    sendTranscriptReplay().catch(() => {});
-    return;
-  }
-  if (currentSession && currentSession.host === host && currentSession.cwd === cwd) {
-    // Same pane reconnecting (WS drop, panel reload): keep the live session
-    // running — do NOT restart it (that would kill an in-flight turn).
-    // Just re-render the chat for the freshly-connected pane.
-    sendTranscriptReplay().catch(() => {});
-    return;
+// The single workspace folder both panes operate in. The agent session
+// is per-host, but the workspace (cwd) is shared — you pick one folder;
+// Word and Excel just keep separate conversations within it.
+function activeCwd() {
+  return currentSession?.cwd ?? getCurrentCwd() ?? matterFolder;
+}
+
+// Called on every taskpane hello — for EITHER host, with both panes
+// possibly connected at once. Connecting a pane must NOT start or swap
+// the agent loop: that's what amplified the connect/disconnect
+// ping-pong, and starting a loop nobody asked for wastes a turn. We
+// only re-render this pane's own (host, cwd) transcript so it shows its
+// history. The loop itself starts lazily on the first user message
+// (onUserMessage → ensureLoopForMessage).
+async function onPaneConnect(host) {
+  if (!host) return;
+  diag(`hello → replay host=${host} cwd=${activeCwd()} (no loop start on connect)`);
+  await sendTranscriptReplayTo(host, activeCwd());
+}
+
+// Called when a user message arrives from `host`, BEFORE it's queued.
+// One agent loop runs at a time, keyed by host. If the live loop already
+// serves this host, do nothing — its userMessageStream will consume the
+// message. Otherwise (no loop, or it's serving the other host) start/swap
+// to this host's session, resuming its (host, cwd) conversation. Deferred
+// via setImmediate so it lands after the message is queued and after any
+// in-flight handler/finally; the new loop then drains this host's queue.
+async function ensureLoopForMessage(host) {
+  if (!host) return;
+  const cwd = activeCwd();
+  if (currentSession && currentSession.host === host && !currentSession.settled) {
+    return; // the running loop already serves this host
   }
   let resumeId = null;
   try {
@@ -248,9 +262,11 @@ async function ensureSessionForActivePane() {
   } catch {
     /* fresh session if lookup fails */
   }
-  diag(`hello → ensure session host=${host} cwd=${cwd} resume=${resumeId ?? "(new)"}`);
-  // startSessionForFolder emits its own cwd_changed + transcript replay.
-  scheduleSessionStart(cwd, resumeId, host, "pane connect");
+  diag(`message → ensure loop host=${host} cwd=${cwd} resume=${resumeId ?? "(new)"}`);
+  // replay:false — the pane already shows the chat (incl. the message
+  // that just triggered this). An empty transcript_replay here (a
+  // brand-new session has no .jsonl yet) would wipe the user's prompt.
+  scheduleSessionStart(cwd, resumeId, host, "user message", { replay: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +276,8 @@ const bridge = createBridge({
   port: WS_PORT,
   token: BRIDGE_TOKEN,
   allowedOrigins: [HTTP_ORIGIN],
-  onHello: () => ensureSessionForActivePane(),
+  onHello: (host) => onPaneConnect(host),
+  onUserMessage: (host) => ensureLoopForMessage(host),
   extraHandlers: {
     pick_path: async (msg, reply) => {
       try {
@@ -280,7 +297,7 @@ const bridge = createBridge({
         });
       }
     },
-    set_cwd: async (msg, reply) => {
+    set_cwd: async (msg, reply, host) => {
       try {
         let cwd;
         let explicitPick = false;
@@ -295,7 +312,7 @@ const bridge = createBridge({
         } else {
           throw new Error("set_cwd requires `cwd` or `autodetect_from_doc`");
         }
-        const resolved = await switchFolder(cwd);
+        const resolved = await switchFolder(cwd, host);
         // Drop a CLAUDE.md marker on explicit user pick so the next open of
         // any doc in this folder auto-detects silently.
         let markerCreated = false;
@@ -340,18 +357,22 @@ const bridge = createBridge({
       reply({
         type: "get_cwd_state_result",
         ok: true,
-        current_cwd: getCurrentCwd(),
+        // The workspace is shared across hosts; show it even before a
+        // loop has started (lazy start means no session until the first
+        // message).
+        current_cwd: getCurrentCwd() ?? matterFolder,
         recent,
         request_id: msg.request_id,
       });
     },
-    stop_agent: async (msg, reply) => {
-      // User clicked the Stop button in the taskpane. Abort the current
-      // agent loop; the query() iterator's catch path sees AbortError and
-      // (because we flag the session as intentionally interrupted) emits
-      // a turn_complete event with interrupted=true so the taskpane flips
-      // back to Ready and auto-restarts a fresh resuming loop.
-      if (currentSession) {
+    stop_agent: async (msg, reply, host) => {
+      // User clicked the Stop button in the taskpane. Abort the running
+      // loop only if it belongs to THIS pane's host; the query()
+      // iterator's catch path sees AbortError and (because we flag the
+      // session as intentionally interrupted) emits turn_complete with
+      // interrupted=true so the taskpane flips back to Ready and
+      // auto-restarts a fresh resuming loop.
+      if (currentSession && currentSession.host === host) {
         currentSession.interrupted = true;
         currentSession.abortController.abort();
         reply({ type: "stop_agent_result", ok: true, request_id: msg.request_id });
@@ -379,7 +400,7 @@ const bridge = createBridge({
     },
     get_context: async (msg, reply) => {
       try {
-        const cwd = getCurrentCwd();
+        const cwd = activeCwd();
         const entries = cwd ? await getContextEntries(cwd) : [];
         reply({ type: "get_context_result", ok: true, cwd, entries, request_id: msg.request_id });
       } catch (e) {
@@ -393,7 +414,7 @@ const bridge = createBridge({
     },
     set_context: async (msg, reply) => {
       try {
-        const cwd = getCurrentCwd();
+        const cwd = activeCwd();
         if (!cwd) throw new Error("No workspace selected");
         const { saved, errors } = await setContextEntries(cwd, msg.entries || []);
         reply({
@@ -616,11 +637,11 @@ function customPermissionHandler(toolName, input) {
 // We also prepend a context header to each turn so the agent always knows the
 // active doc and selection without having to call office_get_doc_info first.
 // ---------------------------------------------------------------------------
-async function* userMessageStream() {
+async function* userMessageStream(host) {
   while (true) {
     let msg;
     try {
-      msg = await bridge.nextUserMessage();
+      msg = await bridge.nextUserMessage(host);
     } catch {
       // Bridge rejected the waiter — session was aborted. Exit cleanly so
       // the underlying query() iterator can shut down without a stray error.
@@ -682,11 +703,18 @@ function getCurrentCwd() {
   return currentSession?.cwd ?? null;
 }
 
-async function startSessionForFolder(cwd, resumeSessionId = null, { host = null } = {}) {
-  // Stop any prior session before starting a new one.
+async function startSessionForFolder(
+  cwd,
+  resumeSessionId = null,
+  { host = null, replay = true } = {},
+) {
+  // Stop any prior session before starting a new one. Clear ONLY the
+  // outgoing host's message queue — a message just enqueued for the host
+  // we're switching TO (the lazy-start trigger) must survive to be
+  // consumed by the loop we're about to build.
   if (currentSession) {
     currentSession.abortController.abort();
-    bridge.clearUserMessages();
+    bridge.clearUserMessages(currentSession.host);
   }
 
   const abortController = new AbortController();
@@ -699,10 +727,11 @@ async function startSessionForFolder(cwd, resumeSessionId = null, { host = null 
   };
   currentSession = session;
 
-  // Register only this host's tool family. A session is created once the
-  // host is known (first hello → ensureSessionForActivePane), so `host`
-  // is normally "word" or "excel"; it's only null in the degraded case
-  // where a set_cwd arrived before any hello (both families registered).
+  // Register only this host's tool family. A session is created lazily
+  // on the first user message (onUserMessage → ensureLoopForMessage), so
+  // `host` is normally "word" or "excel"; it's only null in the degraded
+  // case where a set_cwd arrived before any pane bound a host (both
+  // families registered).
   const officeMcp = createOfficeBridgeMcp(bridge, host);
 
   await touchFolder(cwd);
@@ -710,7 +739,7 @@ async function startSessionForFolder(cwd, resumeSessionId = null, { host = null 
     `[daemon] Starting session for ${cwd}` +
       (resumeSessionId ? ` (resuming ${resumeSessionId.slice(0, 8)}…)` : " (new session)"),
   );
-  bridge.sendAssistantEvent({ event: "cwd_changed", cwd, resumed: !!resumeSessionId });
+  bridge.sendAssistantEvent({ event: "cwd_changed", cwd, resumed: !!resumeSessionId }, host);
   // Structured readiness signal to the Electron shell over the IPC
   // channel — the session loop is up. Lets main.mjs flip the tray to
   // "Ready" without sniffing our stdout for a log substring. No-op when
@@ -722,9 +751,12 @@ async function startSessionForFolder(cwd, resumeSessionId = null, { host = null 
       /* channel gone */
     }
   }
-  // Replay the new workspace's transcript so the panel reflects the
-  // workspace you just switched to (not the previous one's chat).
-  sendTranscriptReplay().catch(() => {});
+  // Replay this host's transcript for the new workspace so its panel
+  // reflects the workspace you just switched to (not the previous chat).
+  // Skipped when this start was triggered by the user's own message
+  // (replay:false): the pane already shows that message, and a fresh
+  // session's empty replay would erase it.
+  if (replay) sendTranscriptReplayTo(host, cwd).catch(() => {});
 
   // Re-read the drafting setup append fresh each session start.
   const append = await buildSystemPromptAppend();
@@ -746,7 +778,7 @@ async function startSessionForFolder(cwd, resumeSessionId = null, { host = null 
   (async () => {
     try {
       for await (const msg of query({
-        prompt: userMessageStream(),
+        prompt: userMessageStream(host),
         options: {
           cwd,
           systemPrompt: {
@@ -786,8 +818,8 @@ async function startSessionForFolder(cwd, resumeSessionId = null, { host = null 
         const friendly = rateLimitHint
           ? `Claude usage limit reached. ${rateLimitHint}`
           : "The agent stopped unexpectedly — this is usually a Claude usage limit. Wait for your limit to reset, or set ANTHROPIC_API_KEY to use an API key.";
-        bridge.sendAssistantEvent({ event: "error", error: friendly });
-        bridge.sendAssistantEvent({ event: "turn_complete", subtype: "stream_ended" });
+        bridge.sendAssistantEvent({ event: "error", error: friendly }, host);
+        bridge.sendAssistantEvent({ event: "turn_complete", subtype: "stream_ended" }, host);
         const { cwd: rcwd, sessionId: rsid, host: rhost } = session;
         scheduleSessionStart(rcwd, rsid, rhost, "post-stream-end");
       }
@@ -803,7 +835,7 @@ async function startSessionForFolder(cwd, resumeSessionId = null, { host = null 
         // currentSession first (via setImmediate); the fresh
         // startSessionForFolder then builds cleanly.
         if (currentSession === session && session.interrupted) {
-          bridge.sendAssistantEvent({ event: "turn_complete", interrupted: true });
+          bridge.sendAssistantEvent({ event: "turn_complete", interrupted: true }, host);
           const { cwd: rcwd, sessionId: rsid, host: rhost } = session;
           scheduleSessionStart(rcwd, rsid, rhost, "post-stop");
         }
@@ -819,9 +851,9 @@ async function startSessionForFolder(cwd, resumeSessionId = null, { host = null 
             msgText,
           ) || /OAUTH/i.test(msgText);
         if (isAuth) {
-          bridge.sendAssistantEvent({ event: "auth_error", error: msgText });
+          bridge.sendAssistantEvent({ event: "auth_error", error: msgText }, host);
         } else {
-          bridge.sendAssistantEvent({ event: "error", error: msgText });
+          bridge.sendAssistantEvent({ event: "error", error: msgText }, host);
         }
       }
     } finally {
@@ -833,17 +865,17 @@ async function startSessionForFolder(cwd, resumeSessionId = null, { host = null 
   return session;
 }
 
-async function switchFolder(rawCwd) {
+async function switchFolder(rawCwd, host = null) {
   const cwd = resolve(rawCwd);
   // Validate the path is a directory.
   const s = await stat(cwd);
   if (!s.isDirectory()) throw new Error(`Not a directory: ${cwd}`);
   // Resume THIS host's session for the target folder (Word and Excel keep
-  // separate conversations per folder). Fall back to the current/known
-  // host if the bridge hasn't recorded one yet.
-  const host = bridge.getContext().host ?? currentSession?.host ?? null;
-  const resumeId = host ? await getSessionId(host, cwd) : null;
-  await startSessionForFolder(cwd, resumeId, { host });
+  // separate conversations per folder). `host` is the requesting pane's
+  // bound host; fall back to the running session's host if absent.
+  const h = host ?? currentSession?.host ?? null;
+  const resumeId = h ? await getSessionId(h, cwd) : null;
+  await startSessionForFolder(cwd, resumeId, { host: h });
   return cwd;
 }
 
@@ -856,7 +888,7 @@ async function restartCurrentSession({ reason = "config_changed" } = {}) {
   const sessionId = currentSession.sessionId;
   const host = currentSession.host ?? null;
   console.log(`[daemon] Restarting session for ${cwd} (reason: ${reason})`);
-  bridge.sendAssistantEvent({ event: "config_reloaded", reason });
+  bridge.sendAssistantEvent({ event: "config_reloaded", reason }, host);
   await startSessionForFolder(cwd, sessionId, { host });
 }
 
@@ -875,11 +907,14 @@ function handleAgentMessage(msg, session = currentSession) {
         } catch (e) {
           diag("init tools introspection failed:", e?.message);
         }
-        bridge.sendAssistantEvent({
-          event: "session_init",
-          session_id: msg.session_id,
-          model: msg.model,
-        });
+        bridge.sendAssistantEvent(
+          {
+            event: "session_init",
+            session_id: msg.session_id,
+            model: msg.model,
+          },
+          session?.host,
+        );
         // Record this session_id for THIS (host, cwd) so the next time
         // this pane connects (or you switch back) it resumes here.
         if (session && msg.session_id && msg.session_id !== session.sessionId) {
@@ -897,7 +932,7 @@ function handleAgentMessage(msg, session = currentSession) {
       // content_block_stop, message_start/stop) we currently ignore.
       const delta = msg.event?.delta;
       if (delta?.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) {
-        bridge.sendAssistantText(delta.text);
+        bridge.sendAssistantText(delta.text, session?.host);
       }
       break;
     }
@@ -909,18 +944,21 @@ function handleAgentMessage(msg, session = currentSession) {
       for (const block of blocks) {
         if (block.type === "tool_use") {
           diag("model called tool:", block.name);
-          bridge.sendAssistantEvent({
-            event: "tool_use_announce",
-            tool: block.name,
-            input: block.input,
-          });
+          bridge.sendAssistantEvent(
+            {
+              event: "tool_use_announce",
+              tool: block.name,
+              input: block.input,
+            },
+            session?.host,
+          );
         }
       }
       break;
     }
     case "result": {
       console.log(`[agent] turn complete (${msg.subtype})`);
-      bridge.sendAssistantEvent({ event: "turn_complete", subtype: msg.subtype });
+      bridge.sendAssistantEvent({ event: "turn_complete", subtype: msg.subtype }, session?.host);
       break;
     }
     case "user": {
