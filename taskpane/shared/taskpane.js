@@ -112,15 +112,6 @@ function setAgentStatus(state, label) {
   $stopAgent.hidden = state !== "working";
 }
 
-// Back-compat shim — routes by state semantics: "working" is always the
-// agent indicator; everything else is connection. Only a safety net for
-// any straggler call sites; explicit code uses setConnectionStatus /
-// setAgentStatus directly.
-function setStatus(state, label) {
-  if (state === "working") setAgentStatus(state, label);
-  else setConnectionStatus(state, label);
-}
-
 // Stop button — abort the current agent turn. The daemon picks up the
 // abort, emits turn_complete with interrupted=true (flipping this
 // indicator to "Stopped"), and auto-restarts a fresh resuming loop.

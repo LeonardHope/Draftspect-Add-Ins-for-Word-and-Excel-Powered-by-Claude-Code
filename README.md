@@ -225,7 +225,7 @@ Eight tools, A1 notation, 2D values arrays:
 
 ### What the agent will refuse
 
-- **Filesystem writes to the live document.** A permission guard refuses `Write`/`Edit`/`MultiEdit` against `.docx`/`.docm`/`.xlsx`/`.xlsm` paths (and `Bash` strings mentioning them). Office holds the document open with unsaved changes; a filesystem write would corrupt it. The agent uses the in-host tools instead.
+- **Filesystem writes to the live document.** A permission guard refuses `Write`/`Edit`/`MultiEdit` against `.docx`/`.docm`/`.xlsx`/`.xlsm` paths, and `Bash` commands that look like they overwrite one. Office holds the document open with unsaved changes; a filesystem write would corrupt it — the agent uses the in-host tools instead. This is an **accident guard, not a security boundary**: it's heuristic and a determined agent can work around it (see [Security & privacy](#security--privacy)).
 
 ---
 

@@ -167,7 +167,7 @@ function pickPathFromMain({ include_files, default_path, title, button_label }) 
 // (preflightHttpMcpServers, etc.) don't hit a TDZ on these bindings.
 //
 //   sessions:        paneKey -> live session { key, host, cwd, sessionId,
-//                    abortController, settled, turnActive, interrupted }
+//                    abortController, settled, interrupted }
 //   workspaceByKey:  paneKey -> last-known cwd, so a pane that connects
 //                    before its first message still resolves a workspace
 //                    (and survives that pane's loop ending).
@@ -681,10 +681,6 @@ async function* userMessageStream(key, session) {
       // the underlying query() iterator can shut down without a stray error.
       return;
     }
-    // A turn is now in flight for this session. Cleared when we emit a
-    // turn_complete (result / stream-ended / stop / error). Lets a
-    // cross-host supersede know it must release the outgoing pane.
-    if (session) session.turnActive = true;
     const { text, context } = msg;
     const header = renderContextHeader(context);
     const content = header ? `${header}\n\n${text}` : text;
@@ -759,7 +755,6 @@ async function startSessionForFolder(
     sessionId: resumeSessionId,
     abortController,
     settled: false,
-    turnActive: false,
     host,
   };
   sessions.set(key, session);
@@ -851,7 +846,6 @@ async function startSessionForFolder(
       // (so it leaves "Working…") and auto-restart the loop so the next
       // message has a live consumer (same rationale as the Stop path).
       if (sessionFor(key) === session && !sawResult && !session.interrupted) {
-        session.turnActive = false;
         const friendly = rateLimitHint
           ? `Claude usage limit reached. ${rateLimitHint}`
           : "The agent stopped unexpectedly — this is usually a Claude usage limit. Wait for your limit to reset, or set ANTHROPIC_API_KEY to use an API key.";
@@ -872,13 +866,11 @@ async function startSessionForFolder(
         // host's session first (via setImmediate); the fresh
         // startSessionForFolder then builds cleanly.
         if (sessionFor(key) === session && session.interrupted) {
-          session.turnActive = false;
           bridge.sendAssistantEvent({ event: "turn_complete", interrupted: true }, key);
           const { key: rkey, cwd: rcwd, sessionId: rsid, host: rhost } = session;
           scheduleSessionStart(rcwd, rsid, rkey, rhost, "post-stop");
         }
       } else if (sessionFor(key) === session) {
-        session.turnActive = false;
         console.error("[daemon] Agent loop crashed:", err);
         // Detect auth failures and surface them as a distinct event so the
         // taskpane can show a recoverable banner ("sign in to Claude Code")
@@ -996,7 +988,6 @@ function handleAgentMessage(msg, session) {
     }
     case "result": {
       console.log(`[agent] turn complete (${msg.subtype})`);
-      if (session) session.turnActive = false;
       bridge.sendAssistantEvent({ event: "turn_complete", subtype: msg.subtype }, session?.key);
       break;
     }
@@ -1005,7 +996,7 @@ function handleAgentMessage(msg, session) {
       break;
     }
     default:
-      // Other event types (api_retry, hook events, etc.) — ignore for POC.
+      // Other event types (api_retry, hook events, etc.) — not surfaced.
       break;
   }
 }
