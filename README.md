@@ -13,10 +13,12 @@ Everything runs on your computer; only API calls go to Anthropic.
 
 ## Status
 
-Early POC, single-user. Macs are the daily-driver platform; Windows works (tested in a Parallels VM).
+Single-user, run-it-yourself — deliberately scoped, not a hardened product (see [Security & privacy](#security--privacy)). Macs are the daily-driver platform; Windows works (tested in a Parallels VM).
 
 - **Word** — mature; this is where most of the polish lives.
 - **Excel** — newer; the tools work but the UX trails Word.
+
+Generalized from [Patspect](https://github.com/LeonardHope), a private patent-drafting-specific Word add-in. This is a fork, not a shared package — fixes are ported across by hand.
 
 ---
 
@@ -68,6 +70,8 @@ npm start
 That's it. A tray icon (menu bar on macOS, system tray on Windows) appears. The first launch offers to **install the add-in into Word and Excel for you** — click _Install_ and you're done.
 
 Open Word or Excel, go to **Insert → Office Add-ins → Shared Folder**, and pick _Claude Code for Word_ or _Claude Code for Excel_.
+
+> **One install per host.** The manifests use fixed add-in `<Id>` GUIDs, so a single Word (or Excel) installation can only sideload one copy of this add-in at a time. If you also run the upstream patent-drafting build (Patspect) or a second clone of this repo, change the `<Id>` GUID in one clone's `manifests/word.xml` / `manifests/excel.xml` to a fresh UUID to run them side by side.
 
 > **Daemon-only debugging.** If something's wrong and you want to see daemon output in the terminal, run `npm run dev` instead of `npm start`. Skips the Electron shell.
 

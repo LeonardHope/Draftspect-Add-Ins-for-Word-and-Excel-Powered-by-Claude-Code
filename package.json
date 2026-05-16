@@ -2,8 +2,12 @@
   "name": "claude-code-office-addins",
   "version": "0.1.0",
   "description": "Microsoft Office (Word + Excel) add-ins that bring your local Claude Code into Office.",
+  "private": true,
   "main": "app/main.mjs",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "node daemon/index.mjs",
     "app": "electron .",
