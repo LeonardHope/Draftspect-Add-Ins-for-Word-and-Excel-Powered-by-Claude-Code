@@ -204,6 +204,19 @@ async function sendTranscriptReplay() {
   }
 }
 
+// Schedule a fresh resuming session for `cwd` on the next tick — past the
+// current message handler / the agent loop's finally block (which nulls
+// currentSession), so startSessionForFolder builds cleanly. Every
+// auto-restart path (host re-narrow, post-stream-end, post-Stop) funnels
+// through here; `reason` only flavors the failure log.
+function scheduleResumeRestart(cwd, sessionId, host, reason) {
+  setImmediate(() => {
+    startSessionForFolder(cwd, sessionId, { host: host ?? null }).catch((err) =>
+      console.error(`[daemon] ${reason} session restart failed:`, err?.message ?? err),
+    );
+  });
+}
+
 // Called on every taskpane hello. The session may have been started before
 // any pane connected (host unknown → both tool families registered) or for
 // a different host (the user moved to a Word doc after an Excel one). If
@@ -219,13 +232,7 @@ function maybeRenarrowForHost() {
     console.log(
       `[daemon] Host is ${host}; session tools were ${currentSession.toolHost ?? "both"} — re-narrowing`,
     );
-    // Defer past the bridge's message handler (matches the post-stop /
-    // stream-end restart pattern).
-    setImmediate(() => {
-      startSessionForFolder(cwd, sessionId, { host }).catch((err) =>
-        console.error("[daemon] host re-narrow restart failed:", err?.message ?? err),
-      );
-    });
+    scheduleResumeRestart(cwd, sessionId, host, "host re-narrow");
     return;
   }
   sendTranscriptReplay().catch(() => {});
@@ -759,11 +766,7 @@ async function startSessionForFolder(cwd, resumeSessionId = null, { host = null 
         bridge.sendAssistantEvent({ event: "error", error: friendly });
         bridge.sendAssistantEvent({ event: "turn_complete", subtype: "stream_ended" });
         const { cwd: rcwd, sessionId: rsid, toolHost: rhost } = session;
-        setImmediate(() => {
-          startSessionForFolder(rcwd, rsid, { host: rhost ?? null }).catch((restartErr) =>
-            console.error("[daemon] post-stream-end session restart failed:", restartErr.message),
-          );
-        });
+        scheduleResumeRestart(rcwd, rsid, rhost, "post-stream-end");
       }
     } catch (err) {
       if (err.name === "AbortError" || /aborted/i.test(err.message ?? "")) {
@@ -779,11 +782,7 @@ async function startSessionForFolder(cwd, resumeSessionId = null, { host = null 
         if (currentSession === session && session.interrupted) {
           bridge.sendAssistantEvent({ event: "turn_complete", interrupted: true });
           const { cwd: rcwd, sessionId: rsid, toolHost: rhost } = session;
-          setImmediate(() => {
-            startSessionForFolder(rcwd, rsid, { host: rhost ?? null }).catch((restartErr) =>
-              console.error("[daemon] post-stop session restart failed:", restartErr.message),
-            );
-          });
+          scheduleResumeRestart(rcwd, rsid, rhost, "post-stop");
         }
       } else if (currentSession === session) {
         console.error("[daemon] Agent loop crashed:", err);
