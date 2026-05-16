@@ -139,7 +139,9 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
   }
 
   wss.on("connection", (ws, req) => {
-    console.log(`[bridge] WS connection from ${req.socket.remoteAddress} (origin: ${req.headers.origin || "(none)"})`);
+    console.log(
+      `[bridge] WS connection from ${req.socket.remoteAddress} (origin: ${req.headers.origin || "(none)"})`,
+    );
 
     // Second gate: first message must be a hello with the correct token.
     // Until that arrives we don't trust the connection — any other message
@@ -174,7 +176,9 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
         // document, racing with the legitimate session.
         if (activeWs && activeWs !== ws && activeWs.readyState === activeWs.OPEN) {
           console.log("[bridge] New pane authed; closing prior pane");
-          try { activeWs.close(4003, "Replaced by new pane"); } catch {}
+          try {
+            activeWs.close(4003, "Replaced by new pane");
+          } catch {}
         }
         authed = true;
         activeWs = ws;
@@ -190,16 +194,20 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
       switch (msg.type) {
         case "hello": {
           mergeContext(msg, { reset: true });
-          ws.send(JSON.stringify({
-            type: "welcome",
-            session_id: randomUUID(),
-            server_version: "0.1.0",
-          }));
-          console.log(`[bridge] hello received; host: ${activeContext.host ?? "?"}; active doc: ${activeContext.activeDoc}`);
+          ws.send(
+            JSON.stringify({
+              type: "welcome",
+              session_id: randomUUID(),
+              server_version: "0.1.0",
+            }),
+          );
+          console.log(
+            `[bridge] hello received; host: ${activeContext.host ?? "?"}; active doc: ${activeContext.activeDoc}`,
+          );
           // Let the daemon push a transcript replay (and anything else it
           // wants on connect). Fire-and-forget; never block the handler.
           if (onHello) {
-            Promise.resolve(onHello()).catch(err =>
+            Promise.resolve(onHello()).catch((err) =>
               console.warn("[bridge] onHello failed:", err?.message ?? err),
             );
           }
@@ -242,9 +250,14 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
             const reply = (obj) => ws.send(JSON.stringify(obj));
             Promise.resolve()
               .then(() => handler(msg, reply))
-              .catch(err => {
+              .catch((err) => {
                 console.error(`[bridge] handler for ${msg.type} threw:`, err);
-                reply({ type: msg.type + "_result", ok: false, error: err.message ?? String(err), request_id: msg.request_id });
+                reply({
+                  type: msg.type + "_result",
+                  ok: false,
+                  error: err.message ?? String(err),
+                  request_id: msg.request_id,
+                });
               });
           } else {
             console.warn("[bridge] Unknown message type:", msg.type);
@@ -272,7 +285,9 @@ export function createBridge({ port, extraHandlers = {}, token, allowedOrigins =
     });
   });
 
-  console.log(`[bridge] WebSocket server listening on ws://127.0.0.1:${port} (origin allowlist: ${allowedOrigins.join(", ") || "<empty>"})`);
+  console.log(
+    `[bridge] WebSocket server listening on ws://127.0.0.1:${port} (origin allowlist: ${allowedOrigins.join(", ") || "<empty>"})`,
+  );
 
   return {
     nextUserMessage,

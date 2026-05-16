@@ -24,15 +24,16 @@ const LOG_FILE = join(homedir(), ".claude", "office-addins", "daemon.log");
 // macOS-only: Windows has no equivalent OS-managed children of $HOME that
 // could be silently confused with a real workspace folder.
 const HOME = homedir();
-const SYSTEM_HOME_CHILDREN = process.platform === "darwin"
-  ? new Set([
-      join(HOME, "Library"),
-      join(HOME, "Movies"),
-      join(HOME, "Music"),
-      join(HOME, "Pictures"),
-      join(HOME, "Public"),
-    ])
-  : new Set();
+const SYSTEM_HOME_CHILDREN =
+  process.platform === "darwin"
+    ? new Set([
+        join(HOME, "Library"),
+        join(HOME, "Movies"),
+        join(HOME, "Music"),
+        join(HOME, "Pictures"),
+        join(HOME, "Public"),
+      ])
+    : new Set();
 
 let tray = null;
 let daemonProcess = null;
@@ -48,12 +49,11 @@ const MAX_RESTART = 3;
 async function findInitialWorkspace() {
   try {
     const state = JSON.parse(await readFile(SESSIONS_FILE, "utf8"));
-    const folders = Object.entries(state.folders || {})
-      .filter(([cwd]) => !SYSTEM_HOME_CHILDREN.has(cwd));
-    if (folders.length === 0) return null;
-    folders.sort(([, a], [, b]) =>
-      (b.last_used || "").localeCompare(a.last_used || "")
+    const folders = Object.entries(state.folders || {}).filter(
+      ([cwd]) => !SYSTEM_HOME_CHILDREN.has(cwd),
     );
+    if (folders.length === 0) return null;
+    folders.sort(([, a], [, b]) => (b.last_used || "").localeCompare(a.last_used || ""));
     return folders[0][0];
   } catch {
     return null;
@@ -170,8 +170,11 @@ async function handleDaemonMessage(msg) {
   }
   if (msg.type !== "pick_path") return;
   const reply = (payload) => {
-    try { daemonProcess?.send({ type: "pick_path_result", id: msg.id, ...payload }); }
-    catch (err) { logStream?.write(`[app] failed to reply to pick_path: ${err.message}\n`); }
+    try {
+      daemonProcess?.send({ type: "pick_path_result", id: msg.id, ...payload });
+    } catch (err) {
+      logStream?.write(`[app] failed to reply to pick_path: ${err.message}\n`);
+    }
   };
   try {
     const properties = msg.include_files
@@ -207,13 +210,18 @@ async function handleDaemonMessage(msg) {
 // --------------------------------------------------------------------------
 function statusLabel() {
   switch (daemonStatus) {
-    case "starting": return "● Starting…";
-    case "running":  return "● Ready";
-    case "crashed":  return restartAttempts >= MAX_RESTART
-                       ? "● Crashed (won't restart)"
-                       : `● Crashed (restart ${restartAttempts}/${MAX_RESTART})`;
-    case "stopped":  return "● Stopped";
-    default:         return "● ?";
+    case "starting":
+      return "● Starting…";
+    case "running":
+      return "● Ready";
+    case "crashed":
+      return restartAttempts >= MAX_RESTART
+        ? "● Crashed (won't restart)"
+        : `● Crashed (restart ${restartAttempts}/${MAX_RESTART})`;
+    case "stopped":
+      return "● Stopped";
+    default:
+      return "● ?";
   }
 }
 
@@ -249,7 +257,9 @@ function buildMenu() {
     { label: "Open Microsoft Excel", click: () => shell.openExternal("ms-excel:") },
     { type: "separator" },
     {
-      label: addinInstalled ? "Reinstall add-in in Word + Excel" : "Install add-in in Word + Excel…",
+      label: addinInstalled
+        ? "Reinstall add-in in Word + Excel"
+        : "Install add-in in Word + Excel…",
       click: () => runInstall({ interactive: true }),
     },
     ...(addinInstalled
@@ -273,8 +283,11 @@ function updateTray() {
 let addinInstalled = false;
 
 async function refreshAddinInstalled() {
-  try { addinInstalled = await isAddinInstalled(); }
-  catch { addinInstalled = false; }
+  try {
+    addinInstalled = await isAddinInstalled();
+  } catch {
+    addinInstalled = false;
+  }
   updateTray();
 }
 
@@ -284,33 +297,37 @@ async function runInstall({ interactive }) {
     addinInstalled = true;
     updateTray();
     if (interactive) {
-      dialog.showMessageBox({
-        type: "info",
-        title: "Claude Code for Office installed",
-        message: "The add-in is now registered with Word and Excel.",
-        detail:
-          "Quit and reopen Word / Excel (if they're already running), then look for " +
-          "Claude Code for Office under Insert → Office Add-ins → Shared Folder.\n\n" +
-          (process.platform === "win32"
-            ? `Trusted catalog registered at:\n${result.catalog}`
-            : `Manifests copied to each app's wef/ folder.`),
-        buttons: ["OK"],
-      }).catch(() => {});
+      dialog
+        .showMessageBox({
+          type: "info",
+          title: "Claude Code for Office installed",
+          message: "The add-in is now registered with Word and Excel.",
+          detail:
+            "Quit and reopen Word / Excel (if they're already running), then look for " +
+            "Claude Code for Office under Insert → Office Add-ins → Shared Folder.\n\n" +
+            (process.platform === "win32"
+              ? `Trusted catalog registered at:\n${result.catalog}`
+              : `Manifests copied to each app's wef/ folder.`),
+          buttons: ["OK"],
+        })
+        .catch(() => {});
     }
     return result;
   } catch (err) {
     logStream?.write(`[app] install failed: ${err.message}\n`);
     if (interactive) {
-      dialog.showMessageBox({
-        type: "error",
-        title: "Couldn't install the add-in",
-        message: err.message,
-        detail:
-          "You can sideload manually instead — see the README's Sideload section. " +
-          "The shortest path: in Word/Excel, Insert → My Add-ins → Upload My Add-in → " +
-          `pick the appropriate file from ${join(PROJECT_ROOT, "manifests")}.`,
-        buttons: ["OK"],
-      }).catch(() => {});
+      dialog
+        .showMessageBox({
+          type: "error",
+          title: "Couldn't install the add-in",
+          message: err.message,
+          detail:
+            "You can sideload manually instead — see the README's Sideload section. " +
+            "The shortest path: in Word/Excel, Insert → My Add-ins → Upload My Add-in → " +
+            `pick the appropriate file from ${join(PROJECT_ROOT, "manifests")}.`,
+          buttons: ["OK"],
+        })
+        .catch(() => {});
     }
   }
 }
@@ -321,23 +338,28 @@ async function runUninstall({ interactive }) {
     addinInstalled = false;
     updateTray();
     if (interactive) {
-      dialog.showMessageBox({
-        type: "info",
-        title: "Add-in uninstalled",
-        message: "Claude Code for Office is no longer registered with Word or Excel.",
-        detail: "The daemon is still running. Quit Claude Code for Office from the tray menu to stop it entirely.",
-        buttons: ["OK"],
-      }).catch(() => {});
+      dialog
+        .showMessageBox({
+          type: "info",
+          title: "Add-in uninstalled",
+          message: "Claude Code for Office is no longer registered with Word or Excel.",
+          detail:
+            "The daemon is still running. Quit Claude Code for Office from the tray menu to stop it entirely.",
+          buttons: ["OK"],
+        })
+        .catch(() => {});
     }
   } catch (err) {
     logStream?.write(`[app] uninstall failed: ${err.message}\n`);
     if (interactive) {
-      dialog.showMessageBox({
-        type: "error",
-        title: "Couldn't uninstall the add-in",
-        message: err.message,
-        buttons: ["OK"],
-      }).catch(() => {});
+      dialog
+        .showMessageBox({
+          type: "error",
+          title: "Couldn't uninstall the add-in",
+          message: err.message,
+          buttons: ["OK"],
+        })
+        .catch(() => {});
     }
   }
 }
@@ -347,18 +369,21 @@ async function runUninstall({ interactive }) {
 async function offerFirstRunInstall() {
   if (process.platform !== "darwin" && process.platform !== "win32") return;
   if (addinInstalled) return;
-  const { response } = await dialog.showMessageBox({
-    type: "question",
-    title: "Install Claude Code for Office in Word + Excel?",
-    message: "Claude Code for Office can install itself in Word and Excel automatically — no manifest copying or registry editing needed.",
-    detail:
-      "Click Install to register the add-in now. You can install later from the tray menu " +
-      "if you'd prefer. After installing, open Word/Excel and find Claude Code for Office under " +
-      "Insert → Office Add-ins → Shared Folder.",
-    buttons: ["Install", "Not now"],
-    defaultId: 0,
-    cancelId: 1,
-  }).catch(() => ({ response: 1 }));
+  const { response } = await dialog
+    .showMessageBox({
+      type: "question",
+      title: "Install Claude Code for Office in Word + Excel?",
+      message:
+        "Claude Code for Office can install itself in Word and Excel automatically — no manifest copying or registry editing needed.",
+      detail:
+        "Click Install to register the add-in now. You can install later from the tray menu " +
+        "if you'd prefer. After installing, open Word/Excel and find Claude Code for Office under " +
+        "Insert → Office Add-ins → Shared Folder.",
+      buttons: ["Install", "Not now"],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    .catch(() => ({ response: 1 }));
   if (response === 0) await runInstall({ interactive: true });
 }
 
@@ -377,9 +402,8 @@ app.whenReady().then(async () => {
   // Windows full-color version. Falls back to the PNG if .ico is missing.
   const macIconPath = join(__dirname, "tray-icon.png");
   const winIconPath = join(__dirname, "tray-icon-win.ico");
-  const iconPath = process.platform === "win32" && fs.existsSync(winIconPath)
-    ? winIconPath
-    : macIconPath;
+  const iconPath =
+    process.platform === "win32" && fs.existsSync(winIconPath) ? winIconPath : macIconPath;
   const icon = nativeImage.createFromPath(iconPath);
   if (process.platform === "darwin") icon.setTemplateImage(true);
   tray = new Tray(icon);
@@ -390,7 +414,9 @@ app.whenReady().then(async () => {
   await refreshAddinInstalled();
   updateTray();
   startDaemon();
-  offerFirstRunInstall().catch(err => logStream?.write(`[app] first-run prompt failed: ${err.message}\n`));
+  offerFirstRunInstall().catch((err) =>
+    logStream?.write(`[app] first-run prompt failed: ${err.message}\n`),
+  );
 });
 
 // Don't quit on "all windows closed" — we have no windows; tray is the UI.

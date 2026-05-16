@@ -9,7 +9,13 @@ import { createBridge } from "./bridge.mjs";
 import { createOfficeBridgeMcp } from "./office-tools.mjs";
 import { resolveWorkspaceRoot, suggestWorkspaceRoot, ensureWorkspaceMarker } from "./workspace.mjs";
 import { randomUUID } from "node:crypto";
-import { getSessionForFolder, saveSessionForFolder, touchFolder, getRecentFolders, forgetFolder } from "./sessions.mjs";
+import {
+  getSessionForFolder,
+  saveSessionForFolder,
+  touchFolder,
+  getRecentFolders,
+  forgetFolder,
+} from "./sessions.mjs";
 import { readTranscript } from "./transcript.mjs";
 import { getContextEntries, setContextEntries } from "./context.mjs";
 import { stat } from "node:fs/promises";
@@ -30,7 +36,9 @@ const BRIDGE_TOKEN = randomBytes(24).toString("hex");
 {
   await mkdir(dirname(TOKEN_FILE), { recursive: true });
   await writeFile(TOKEN_FILE, BRIDGE_TOKEN, { mode: 0o600 });
-  try { await chmod(TOKEN_FILE, 0o600); } catch {}
+  try {
+    await chmod(TOKEN_FILE, 0o600);
+  } catch {}
   console.log(`[daemon] Bridge token written to ${TOKEN_FILE}`);
 }
 
@@ -50,13 +58,13 @@ console.log(`[daemon] Workspace folder (agent cwd): ${matterFolder}`);
 // ---------------------------------------------------------------------------
 const MIME = {
   ".html": "text/html; charset=utf-8",
-  ".js":   "application/javascript; charset=utf-8",
-  ".css":  "text/css; charset=utf-8",
-  ".png":  "image/png",
-  ".svg":  "image/svg+xml",
-  ".ico":  "image/x-icon",
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
   ".json": "application/json; charset=utf-8",
-  ".xml":  "application/xml; charset=utf-8",
+  ".xml": "application/xml; charset=utf-8",
 };
 
 const taskpaneDir = join(PROJECT_ROOT, "taskpane");
@@ -76,7 +84,10 @@ const http = createServer(async (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
-  if (req.method === "OPTIONS") { res.writeHead(204).end(); return; }
+  if (req.method === "OPTIONS") {
+    res.writeHead(204).end();
+    return;
+  }
 
   try {
     const urlPath = (req.url || "/").split("?")[0];
@@ -104,8 +115,12 @@ const http = createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": mime });
     res.end(data);
   } catch (err) {
-    if (err.code === "ENOENT") { res.writeHead(404).end("Not found"); }
-    else { console.error("[http]", err); res.writeHead(500).end("Server error"); }
+    if (err.code === "ENOENT") {
+      res.writeHead(404).end("Not found");
+    } else {
+      console.error("[http]", err);
+      res.writeHead(500).end("Server error");
+    }
   }
 });
 
@@ -208,7 +223,12 @@ const bridge = createBridge({
         });
         reply({ type: "pick_path_result", request_id: msg.request_id, ...result });
       } catch (e) {
-        reply({ type: "pick_path_result", ok: false, error: e.message, request_id: msg.request_id });
+        reply({
+          type: "pick_path_result",
+          ok: false,
+          error: e.message,
+          request_id: msg.request_id,
+        });
       }
     },
     set_cwd: async (msg, reply) => {
@@ -217,7 +237,8 @@ const bridge = createBridge({
         let explicitPick = false;
         if (msg.autodetect_from_doc) {
           const detected = await resolveWorkspaceRoot(msg.autodetect_from_doc);
-          if (!detected) throw new Error("Could not auto-detect a workspace folder from that doc path");
+          if (!detected)
+            throw new Error("Could not auto-detect a workspace folder from that doc path");
           cwd = detected;
         } else if (msg.cwd) {
           cwd = msg.cwd;
@@ -230,10 +251,19 @@ const bridge = createBridge({
         // any doc in this folder auto-detects silently.
         let markerCreated = false;
         if (explicitPick) {
-          try { markerCreated = await ensureWorkspaceMarker(resolved); }
-          catch (e) { console.warn(`[daemon] could not create CLAUDE.md in ${resolved}: ${e.message}`); }
+          try {
+            markerCreated = await ensureWorkspaceMarker(resolved);
+          } catch (e) {
+            console.warn(`[daemon] could not create CLAUDE.md in ${resolved}: ${e.message}`);
+          }
         }
-        reply({ type: "set_cwd_result", ok: true, cwd: resolved, marker_created: markerCreated, request_id: msg.request_id });
+        reply({
+          type: "set_cwd_result",
+          ok: true,
+          cwd: resolved,
+          marker_created: markerCreated,
+          request_id: msg.request_id,
+        });
       } catch (e) {
         reply({ type: "set_cwd_result", ok: false, error: e.message, request_id: msg.request_id });
       }
@@ -241,9 +271,19 @@ const bridge = createBridge({
     suggest_workspace: async (msg, reply) => {
       try {
         const suggestion = await suggestWorkspaceRoot(msg.doc_path || null);
-        reply({ type: "suggest_workspace_result", ok: true, suggestion, request_id: msg.request_id });
+        reply({
+          type: "suggest_workspace_result",
+          ok: true,
+          suggestion,
+          request_id: msg.request_id,
+        });
       } catch (e) {
-        reply({ type: "suggest_workspace_result", ok: false, error: e.message, request_id: msg.request_id });
+        reply({
+          type: "suggest_workspace_result",
+          ok: false,
+          error: e.message,
+          request_id: msg.request_id,
+        });
       }
     },
     get_cwd_state: async (msg, reply) => {
@@ -267,7 +307,12 @@ const bridge = createBridge({
         currentSession.abortController.abort();
         reply({ type: "stop_agent_result", ok: true, request_id: msg.request_id });
       } else {
-        reply({ type: "stop_agent_result", ok: false, error: "No active agent turn", request_id: msg.request_id });
+        reply({
+          type: "stop_agent_result",
+          ok: false,
+          error: "No active agent turn",
+          request_id: msg.request_id,
+        });
       }
     },
     forget_folder: async (msg, reply) => {
@@ -275,7 +320,12 @@ const bridge = createBridge({
         await forgetFolder(msg.cwd);
         reply({ type: "forget_folder_result", ok: true, request_id: msg.request_id });
       } catch (e) {
-        reply({ type: "forget_folder_result", ok: false, error: e.message, request_id: msg.request_id });
+        reply({
+          type: "forget_folder_result",
+          ok: false,
+          error: e.message,
+          request_id: msg.request_id,
+        });
       }
     },
     get_context: async (msg, reply) => {
@@ -284,7 +334,12 @@ const bridge = createBridge({
         const entries = cwd ? await getContextEntries(cwd) : [];
         reply({ type: "get_context_result", ok: true, cwd, entries, request_id: msg.request_id });
       } catch (e) {
-        reply({ type: "get_context_result", ok: false, error: e.message, request_id: msg.request_id });
+        reply({
+          type: "get_context_result",
+          ok: false,
+          error: e.message,
+          request_id: msg.request_id,
+        });
       }
     },
     set_context: async (msg, reply) => {
@@ -302,11 +357,16 @@ const bridge = createBridge({
         });
         // Restart so the agent re-reads this workspace's CLAUDE.md and picks
         // up the updated context block on the next turn.
-        restartCurrentSession({ reason: "context_changed" }).catch(err =>
-          console.warn("[daemon] restart failed:", err.message)
+        restartCurrentSession({ reason: "context_changed" }).catch((err) =>
+          console.warn("[daemon] restart failed:", err.message),
         );
       } catch (e) {
-        reply({ type: "set_context_result", ok: false, error: e.message, request_id: msg.request_id });
+        reply({
+          type: "set_context_result",
+          ok: false,
+          error: e.message,
+          request_id: msg.request_id,
+        });
       }
     },
   },
@@ -341,7 +401,9 @@ async function loadUserMcpServers() {
 const userMcpServers = await loadUserMcpServers();
 const userMcpNames = Object.keys(userMcpServers);
 if (userMcpNames.length > 0) {
-  console.log(`[daemon] Loaded ${userMcpNames.length} MCP server(s) from ~/.claude.json: ${userMcpNames.join(", ")}`);
+  console.log(
+    `[daemon] Loaded ${userMcpNames.length} MCP server(s) from ~/.claude.json: ${userMcpNames.join(", ")}`,
+  );
 }
 
 // Preflight HTTP MCP servers. The SDK will silently drop any server whose
@@ -352,32 +414,44 @@ if (userMcpNames.length > 0) {
 // "no idea why Visio doesn't work".
 async function preflightHttpMcpServers(servers) {
   const entries = Object.entries(servers).filter(([, cfg]) => cfg?.type === "http" && cfg.url);
-  await Promise.all(entries.map(async ([name, cfg]) => {
-    const body = JSON.stringify({
-      jsonrpc: "2.0", id: 1, method: "initialize",
-      params: {
-        protocolVersion: "2024-11-05",
-        capabilities: {},
-        clientInfo: { name: "claude-code-office-preflight", version: "0.1" },
-      },
-    });
-    try {
-      const res = await fetch(cfg.url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Accept": "application/json, text/event-stream" },
-        body,
-        signal: AbortSignal.timeout(5000),
+  await Promise.all(
+    entries.map(async ([name, cfg]) => {
+      const body = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "claude-code-office-preflight", version: "0.1" },
+        },
       });
-      if (res.ok) {
-        console.log(`[daemon] MCP preflight: ${name} reachable at ${cfg.url}`);
-      } else {
-        console.warn(`[daemon] MCP preflight: ${name} returned HTTP ${res.status} — tools may be missing until daemon restart`);
+      try {
+        const res = await fetch(cfg.url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json, text/event-stream",
+          },
+          body,
+          signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) {
+          console.log(`[daemon] MCP preflight: ${name} reachable at ${cfg.url}`);
+        } else {
+          console.warn(
+            `[daemon] MCP preflight: ${name} returned HTTP ${res.status} — tools may be missing until daemon restart`,
+          );
+        }
+      } catch (err) {
+        const reason =
+          err.name === "TimeoutError" ? "timeout after 5s" : err.cause?.code || err.message;
+        console.warn(
+          `[daemon] MCP preflight: ${name} unreachable (${reason}) — tools will be missing until daemon restart`,
+        );
       }
-    } catch (err) {
-      const reason = err.name === "TimeoutError" ? "timeout after 5s" : (err.cause?.code || err.message);
-      console.warn(`[daemon] MCP preflight: ${name} unreachable (${reason}) — tools will be missing until daemon restart`);
-    }
-  }));
+    }),
+  );
 }
 await preflightHttpMcpServers(userMcpServers);
 
@@ -565,7 +639,7 @@ async function startSessionForFolder(cwd, resumeSessionId = null) {
   await touchFolder(cwd);
   console.log(
     `[daemon] Starting session for ${cwd}` +
-    (resumeSessionId ? ` (resuming ${resumeSessionId.slice(0, 8)}…)` : " (new session)")
+      (resumeSessionId ? ` (resuming ${resumeSessionId.slice(0, 8)}…)` : " (new session)"),
   );
   bridge.sendAssistantEvent({ event: "cwd_changed", cwd, resumed: !!resumeSessionId });
   // Structured readiness signal to the Electron shell over the IPC
@@ -573,7 +647,11 @@ async function startSessionForFolder(cwd, resumeSessionId = null) {
   // "Ready" without sniffing our stdout for a log substring. No-op when
   // run via `npm run dev` (no IPC channel).
   if (process.send) {
-    try { process.send({ type: "daemon_ready", cwd }); } catch { /* channel gone */ }
+    try {
+      process.send({ type: "daemon_ready", cwd });
+    } catch {
+      /* channel gone */
+    }
   }
   // Replay the new workspace's transcript so the panel reflects the
   // workspace you just switched to (not the previous one's chat).
@@ -592,7 +670,8 @@ async function startSessionForFolder(cwd, resumeSessionId = null) {
   // phrasing varies by SDK version and limit kind (per-minute / daily /
   // weekly); match broadly.
   let rateLimitHint = null;
-  const RATE_LIMIT_RE = /(usage limit|rate limit|daily limit|weekly limit|quota|too many requests|429|limit reached|limit will reset|resets? at|upgrade to|out of (?:credits|quota))/i;
+  const RATE_LIMIT_RE =
+    /(usage limit|rate limit|daily limit|weekly limit|quota|too many requests|429|limit reached|limit will reset|resets? at|upgrade to|out of (?:credits|quota))/i;
 
   // Fire-and-forget; index.mjs keeps running while the agent loop iterates.
   (async () => {
@@ -642,7 +721,7 @@ async function startSessionForFolder(cwd, resumeSessionId = null) {
         bridge.sendAssistantEvent({ event: "turn_complete", subtype: "stream_ended" });
         const { cwd: rcwd, sessionId: rsid } = session;
         setImmediate(() => {
-          startSessionForFolder(rcwd, rsid).catch(restartErr =>
+          startSessionForFolder(rcwd, rsid).catch((restartErr) =>
             console.error("[daemon] post-stream-end session restart failed:", restartErr.message),
           );
         });
@@ -662,7 +741,7 @@ async function startSessionForFolder(cwd, resumeSessionId = null) {
           bridge.sendAssistantEvent({ event: "turn_complete", interrupted: true });
           const { cwd: rcwd, sessionId: rsid } = session;
           setImmediate(() => {
-            startSessionForFolder(rcwd, rsid).catch(restartErr =>
+            startSessionForFolder(rcwd, rsid).catch((restartErr) =>
               console.error("[daemon] post-stop session restart failed:", restartErr.message),
             );
           });
@@ -674,8 +753,10 @@ async function startSessionForFolder(cwd, resumeSessionId = null) {
         // instead of just dumping the SDK's raw error. Matched generously:
         // SDK error messages have varied across versions.
         const msgText = String(err?.message ?? err);
-        const isAuth = /\b(authentication|unauthorized|credential|api[- ]?key|sign[- ]?in|401)\b/i.test(msgText)
-          || /OAUTH/i.test(msgText);
+        const isAuth =
+          /\b(authentication|unauthorized|credential|api[- ]?key|sign[- ]?in|401)\b/i.test(
+            msgText,
+          ) || /OAUTH/i.test(msgText);
         if (isAuth) {
           bridge.sendAssistantEvent({ event: "auth_error", error: msgText });
         } else {
@@ -718,13 +799,17 @@ function handleAgentMessage(msg, session = currentSession) {
     case "system": {
       if (msg.subtype === "init") {
         console.log(`[agent] init session ${msg.session_id} (model: ${msg.model})`);
-        bridge.sendAssistantEvent({ event: "session_init", session_id: msg.session_id, model: msg.model });
+        bridge.sendAssistantEvent({
+          event: "session_init",
+          session_id: msg.session_id,
+          model: msg.model,
+        });
         // Record this session_id for the current cwd so the next switch back
         // resumes here.
         if (session && msg.session_id && msg.session_id !== session.sessionId) {
           session.sessionId = msg.session_id;
-          saveSessionForFolder(session.cwd, msg.session_id).catch(err =>
-            console.warn("[daemon] Could not save session id:", err.message)
+          saveSessionForFolder(session.cwd, msg.session_id).catch((err) =>
+            console.warn("[daemon] Could not save session id:", err.message),
           );
         }
       }
@@ -774,7 +859,7 @@ function handleAgentMessage(msg, session = currentSession) {
 // ---------------------------------------------------------------------------
 // Kick off.
 // ---------------------------------------------------------------------------
-startSessionForFolder(matterFolder).catch(err => {
+startSessionForFolder(matterFolder).catch((err) => {
   console.error("[daemon] Failed to start initial session:", err);
   process.exit(1);
 });

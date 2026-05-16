@@ -60,7 +60,9 @@ async function locateSessionFile(sessionId) {
     try {
       const s = await stat(p);
       if (s.isFile()) candidates.push({ path: p, mtime: s.mtimeMs });
-    } catch { /* not in this dir */ }
+    } catch {
+      /* not in this dir */
+    }
   }
   if (candidates.length === 0) return null;
   candidates.sort((a, b) => b.mtime - a.mtime);
@@ -82,8 +84,8 @@ function eventsFromLine(obj) {
       // Arrays are tool_result blocks (skip) — but defensively surface any
       // genuine text blocks if a build ever mixes them in.
       const text = content
-        .filter(b => b && b.type === "text" && typeof b.text === "string")
-        .map(b => b.text)
+        .filter((b) => b && b.type === "text" && typeof b.text === "string")
+        .map((b) => b.text)
         .join("")
         .trim();
       if (text) out.push({ kind: "user", text });
@@ -134,7 +136,11 @@ export async function readTranscript(sessionId, { maxEvents = 200 } = {}) {
     for await (const line of rl) {
       if (!line.trim()) continue;
       let obj;
-      try { obj = JSON.parse(line); } catch { continue; }
+      try {
+        obj = JSON.parse(line);
+      } catch {
+        continue;
+      }
       for (const ev of eventsFromLine(obj)) {
         ring.push(ev);
         total++;

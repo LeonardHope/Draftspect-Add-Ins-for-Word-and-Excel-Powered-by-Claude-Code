@@ -139,7 +139,8 @@ test("getContextEntries ignores the marker string when it's inline in prose / a 
       "# Workspace\n\n" +
       "Docs may mention the marker `<!-- CONTEXT-FILES:BEGIN -->` inline.\n\n" +
       "```\n<!-- CONTEXT-FILES:BEGIN --> not a real delimiter here\n```\n\n" +
-      real + "\n";
+      real +
+      "\n";
     await writeFile(join(ws, "CLAUDE.md"), md);
     const got = await getContextEntries(ws);
     assert.equal(got.length, 1);

@@ -23,8 +23,10 @@ async function withFakeHome(fn) {
     const mod = await import("../daemon/sessions.mjs" + cacheBuster);
     await fn(mod, fakeHome);
   } finally {
-    if (prevHome === undefined) delete process.env.HOME; else process.env.HOME = prevHome;
-    if (prevUserProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = prevUserProfile;
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    if (prevUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = prevUserProfile;
     await rm(fakeHome, { recursive: true, force: true });
   }
 }
@@ -54,7 +56,7 @@ test("touchFolder upserts: creates a new entry with no session_id, updates times
     const firstTouched = got.last_used;
 
     // Tiny wait so the ISO string differs.
-    await new Promise(r => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 10));
 
     await saveSessionForFolder("/tmp/folderB", "session-uuid-2");
     await touchFolder("/tmp/folderB");
@@ -67,7 +69,7 @@ test("touchFolder upserts: creates a new entry with no session_id, updates times
 test("getRecentFolders returns most-recent-first, capped to the limit", async () => {
   await withFakeHome(async ({ touchFolder, getRecentFolders }) => {
     await touchFolder("/tmp/older");
-    await new Promise(r => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 10));
     await touchFolder("/tmp/newer");
     const recent = await getRecentFolders(10);
     assert.equal(recent.length, 2);

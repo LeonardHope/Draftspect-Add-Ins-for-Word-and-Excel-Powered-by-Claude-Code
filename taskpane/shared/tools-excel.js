@@ -69,7 +69,7 @@ export async function toolExcelListSheets() {
     active.load("name");
     await context.sync();
     // Load used range per sheet (separate sync because we needed names first).
-    const used = sheets.items.map(s => {
+    const used = sheets.items.map((s) => {
       const r = s.getUsedRangeOrNullObject(true);
       r.load("address, rowCount, columnCount, isNullObject");
       return { sheet: s, used: r };
@@ -90,7 +90,7 @@ export async function toolExcelListSheets() {
 
 export async function toolExcelReadRange({ address = null, sheet = null }) {
   return await Excel.run(async (context) => {
-    const activeName = sheet || await _activeSheetName(context);
+    const activeName = sheet || (await _activeSheetName(context));
     const { sheetName, a1 } = _splitSheetAddress(address, activeName);
     const ws = context.workbook.worksheets.getItem(sheetName);
     // For whole-sheet reads (no explicit address), use the null-object
@@ -132,12 +132,12 @@ export async function toolExcelWriteRange({ address, values, sheet = null }) {
       const got = Array.isArray(values[i]) ? `${values[i].length} elements` : "not an array";
       throw new Error(
         `Ragged values: row ${i} is ${got} but row 0 has ${expectedCols}. ` +
-        `All rows must be the same length.`,
+          `All rows must be the same length.`,
       );
     }
   }
   return await Excel.run(async (context) => {
-    const activeName = sheet || await _activeSheetName(context);
+    const activeName = sheet || (await _activeSheetName(context));
     const { sheetName, a1 } = _splitSheetAddress(address, activeName);
     if (!a1) throw new Error("`address` is required for write_range.");
     const ws = context.workbook.worksheets.getItem(sheetName);
@@ -147,7 +147,7 @@ export async function toolExcelWriteRange({ address, values, sheet = null }) {
     if (range.rowCount !== values.length || range.columnCount !== expectedCols) {
       throw new Error(
         `Shape mismatch: range ${range.address} is ${range.rowCount}×${range.columnCount} ` +
-        `but values is ${values.length}×${expectedCols}.`,
+          `but values is ${values.length}×${expectedCols}.`,
       );
     }
     range.values = values;
@@ -156,7 +156,12 @@ export async function toolExcelWriteRange({ address, values, sheet = null }) {
   });
 }
 
-export async function toolExcelFindValue({ query, sheet = null, match_case = false, whole_cell = false }) {
+export async function toolExcelFindValue({
+  query,
+  sheet = null,
+  match_case = false,
+  whole_cell = false,
+}) {
   if (typeof query !== "string" || !query.length) throw new Error("`query` is required.");
   return await Excel.run(async (context) => {
     const targetSheets = sheet
@@ -212,7 +217,7 @@ export async function toolExcelInsertRows({ sheet = null, at, count = 1 }) {
   if (!Number.isInteger(at) || at < 1) throw new Error("`at` must be a positive integer.");
   if (!Number.isInteger(count) || count < 1) throw new Error("`count` must be a positive integer.");
   return await Excel.run(async (context) => {
-    const activeName = sheet || await _activeSheetName(context);
+    const activeName = sheet || (await _activeSheetName(context));
     const ws = context.workbook.worksheets.getItem(activeName);
     const target = ws.getRange(`${at}:${at + count - 1}`);
     target.insert(Excel.InsertShiftDirection.down);
@@ -225,7 +230,7 @@ export async function toolExcelDeleteRows({ sheet = null, at, count = 1 }) {
   if (!Number.isInteger(at) || at < 1) throw new Error("`at` must be a positive integer.");
   if (!Number.isInteger(count) || count < 1) throw new Error("`count` must be a positive integer.");
   return await Excel.run(async (context) => {
-    const activeName = sheet || await _activeSheetName(context);
+    const activeName = sheet || (await _activeSheetName(context));
     const ws = context.workbook.worksheets.getItem(activeName);
     const target = ws.getRange(`${at}:${at + count - 1}`);
     target.delete(Excel.DeleteShiftDirection.up);

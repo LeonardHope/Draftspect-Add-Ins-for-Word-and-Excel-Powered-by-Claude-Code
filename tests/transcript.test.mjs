@@ -12,19 +12,19 @@ import { stripContextHeader, eventsFromLine, readTranscript } from "../daemon/tr
 
 test("stripContextHeader removes the injected per-turn header", () => {
   assert.equal(
-    stripContextHeader("[Host: Word · Doc: /x/y.docx · Selection: \"hi\"]\n\nFix the typo."),
+    stripContextHeader('[Host: Word · Doc: /x/y.docx · Selection: "hi"]\n\nFix the typo.'),
     "Fix the typo.",
   );
   assert.equal(stripContextHeader("No header here."), "No header here.");
   // Only the leading bracketed line is stripped, not later bracketed text.
-  assert.equal(
-    stripContextHeader("[Doc: a]\n\nsee [Note: keep this]"),
-    "see [Note: keep this]",
-  );
+  assert.equal(stripContextHeader("[Doc: a]\n\nsee [Note: keep this]"), "see [Note: keep this]");
 });
 
 test("eventsFromLine: user string → user bubble (header stripped)", () => {
-  const evs = eventsFromLine({ type: "user", message: { role: "user", content: "[Doc: a]\n\nhello" } });
+  const evs = eventsFromLine({
+    type: "user",
+    message: { role: "user", content: "[Doc: a]\n\nhello" },
+  });
   assert.deepEqual(evs, [{ kind: "user", text: "hello" }]);
 });
 
@@ -83,10 +83,16 @@ test("readTranscript round-trips a real .jsonl under ~/.claude/projects + trunca
     const lines = [
       JSON.stringify({ type: "queue-operation", x: 1 }),
       JSON.stringify({ type: "user", message: { role: "user", content: "[Doc: a]\n\nfirst" } }),
-      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "reply one" }] } }),
+      JSON.stringify({
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "text", text: "reply one" }] },
+      }),
       "not json — should be skipped",
       JSON.stringify({ type: "user", message: { role: "user", content: "second" } }),
-      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", name: "Bash", input: {} }] } }),
+      JSON.stringify({
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "tool_use", name: "Bash", input: {} }] },
+      }),
     ];
     await writeFile(join(projDir, `${sid}.jsonl`), lines.join("\n") + "\n");
 
@@ -103,10 +109,15 @@ test("readTranscript round-trips a real .jsonl under ~/.claude/projects + trunca
     const clipped = await mod.readTranscript(sid, { maxEvents: 2 });
     assert.equal(clipped.truncated, true);
     assert.equal(clipped.events.length, 2);
-    assert.deepEqual(clipped.events.map(e => e.kind), ["user", "tool"]);
+    assert.deepEqual(
+      clipped.events.map((e) => e.kind),
+      ["user", "tool"],
+    );
   } finally {
-    if (prevHome === undefined) delete process.env.HOME; else process.env.HOME = prevHome;
-    if (prevUserProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = prevUserProfile;
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    if (prevUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = prevUserProfile;
     await rm(fakeHome, { recursive: true, force: true });
   }
 });

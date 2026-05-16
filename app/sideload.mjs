@@ -32,7 +32,7 @@ const MANIFESTS_DIR = join(PROJECT_ROOT, "manifests");
 // sandbox we drop the manifest into on macOS. `guid` is purely informational
 // here (the manifest carries its own Id element).
 const HOSTS = [
-  { host: "Word",  file: "word.xml",  mac_container: "com.microsoft.Word"  },
+  { host: "Word", file: "word.xml", mac_container: "com.microsoft.Word" },
   { host: "Excel", file: "excel.xml", mac_container: "com.microsoft.Excel" },
 ];
 
@@ -74,7 +74,7 @@ async function macUninstall() {
 }
 
 function macIsInstalled() {
-  return HOSTS.every(host => existsSync(macWefPath(host)));
+  return HOSTS.every((host) => existsSync(macWefPath(host)));
 }
 
 // ---------------------------------------------------------------------------
@@ -94,7 +94,9 @@ function regCommand(args) {
   return new Promise((resolve, reject) => {
     const p = spawn("reg.exe", args, { windowsHide: true });
     let stderr = "";
-    p.stderr.on("data", (d) => { stderr += d.toString(); });
+    p.stderr.on("data", (d) => {
+      stderr += d.toString();
+    });
     p.on("exit", (code) => {
       if (code === 0) resolve();
       else reject(new Error(`reg.exe ${args.join(" ")} exited ${code}: ${stderr.trim()}`));
@@ -129,26 +131,35 @@ async function winInstall() {
     await copyFile(join(MANIFESTS_DIR, host.file), dst);
     copied.push({ host: host.host, path: dst });
   }
-  await regAddString(WIN_CATALOG_KEY, "Id",           WIN_CATALOG_ID);
-  await regAddString(WIN_CATALOG_KEY, "Url",          catalogDir);
+  await regAddString(WIN_CATALOG_KEY, "Id", WIN_CATALOG_ID);
+  await regAddString(WIN_CATALOG_KEY, "Url", catalogDir);
   await regAddString(WIN_CATALOG_KEY, "FriendlyName", "Claude Code for Office");
   // Flags=1 means "Show in menu" — equivalent to the checkbox in the Trust
   // Center UI; without this the catalog is registered but invisible.
-  await regAddDword (WIN_CATALOG_KEY, "Flags",        1);
+  await regAddDword(WIN_CATALOG_KEY, "Flags", 1);
   return { installed: copied, catalog: catalogDir, registry: WIN_CATALOG_KEY };
 }
 
 async function winUninstall() {
   const removed = [];
   // Remove registered catalog
-  try { await regDelete(WIN_CATALOG_KEY); } catch { /* not present */ }
+  try {
+    await regDelete(WIN_CATALOG_KEY);
+  } catch {
+    /* not present */
+  }
   // Best-effort clean up the manifest files
   try {
     const dir = winCatalogDir();
     for (const f of await readdir(dir)) {
-      try { await unlink(join(dir, f)); removed.push(join(dir, f)); } catch {}
+      try {
+        await unlink(join(dir, f));
+        removed.push(join(dir, f));
+      } catch {}
     }
-  } catch { /* dir missing — fine */ }
+  } catch {
+    /* dir missing — fine */
+  }
   return { removed, registry: WIN_CATALOG_KEY };
 }
 
@@ -161,18 +172,20 @@ async function winIsInstalled() {
 // ---------------------------------------------------------------------------
 export async function isAddinInstalled() {
   if (process.platform === "darwin") return macIsInstalled();
-  if (process.platform === "win32")  return await winIsInstalled();
+  if (process.platform === "win32") return await winIsInstalled();
   return false;
 }
 
 export async function installAddin() {
   if (process.platform === "darwin") return macInstall();
-  if (process.platform === "win32")  return winInstall();
-  throw new Error(`Auto-sideload not supported on ${process.platform}; see README for manual instructions.`);
+  if (process.platform === "win32") return winInstall();
+  throw new Error(
+    `Auto-sideload not supported on ${process.platform}; see README for manual instructions.`,
+  );
 }
 
 export async function uninstallAddin() {
   if (process.platform === "darwin") return macUninstall();
-  if (process.platform === "win32")  return winUninstall();
+  if (process.platform === "win32") return winUninstall();
   throw new Error(`Auto-sideload not supported on ${process.platform}.`);
 }

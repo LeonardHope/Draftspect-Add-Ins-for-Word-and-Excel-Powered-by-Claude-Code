@@ -20,7 +20,11 @@ function _normalizePathForCompare(p) {
   // spurious leading slash before the drive letter; fix that below.
   if (/^file:\/\//i.test(s)) {
     s = s.replace(/^file:\/\//i, "");
-    try { s = decodeURIComponent(s); } catch { /* leave as-is */ }
+    try {
+      s = decodeURIComponent(s);
+    } catch {
+      /* leave as-is */
+    }
   }
   // "/C:/x" → "C:/x" (Office.context.document.url comes in this shape).
   s = s.replace(/^\/([a-zA-Z]):/, "$1:");

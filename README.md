@@ -46,13 +46,13 @@ Because it's your local Claude Code, anything you've configured — custom agent
 
 Get these in place **before** you launch the app:
 
-| Requirement | How to check / get it |
-| --- | --- |
-| **macOS** _or_ Windows 10/11 | (anything else won't load the manifests) |
-| **Node.js 18+** | `node --version` — install via [nodejs.org](https://nodejs.org/) or [Volta](https://volta.sh/) / [nvm](https://github.com/nvm-sh/nvm) |
-| **Microsoft Word and/or Excel** | Microsoft 365, Office 2019, or Office 2021. Word build needs **WordApi 1.4+** (any reasonably recent build). Excel needs **ExcelApi 1.4+**. The manifests reject older versions automatically. |
-| **Claude Code, signed in** | `claude` in a terminal. Sign in once (Pro/Max subscription works), and the daemon picks up your OAuth from the system keychain. **Or** export `ANTHROPIC_API_KEY=sk-ant-...` in your shell before launch; that takes precedence over keychain OAuth. |
-| **Git** | for cloning the repo |
+| Requirement                     | How to check / get it                                                                                                                                                                                                                                |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **macOS** _or_ Windows 10/11    | (anything else won't load the manifests)                                                                                                                                                                                                             |
+| **Node.js 18+**                 | `node --version` — install via [nodejs.org](https://nodejs.org/) or [Volta](https://volta.sh/) / [nvm](https://github.com/nvm-sh/nvm)                                                                                                                |
+| **Microsoft Word and/or Excel** | Microsoft 365, Office 2019, or Office 2021. Word build needs **WordApi 1.4+** (any reasonably recent build). Excel needs **ExcelApi 1.4+**. The manifests reject older versions automatically.                                                       |
+| **Claude Code, signed in**      | `claude` in a terminal. Sign in once (Pro/Max subscription works), and the daemon picks up your OAuth from the system keychain. **Or** export `ANTHROPIC_API_KEY=sk-ant-...` in your shell before launch; that takes precedence over keychain OAuth. |
+| **Git**                         | for cloning the repo                                                                                                                                                                                                                                 |
 
 If you don't have Claude Code yet, [install it](https://docs.claude.com/en/docs/claude-code/overview) first. The add-in is a thin layer on top of it — without it nothing connects.
 
@@ -120,16 +120,16 @@ The task pane and daemon both live on `localhost`. Nothing on your network can t
 
 ### Default presets
 
-| Preset | What it does |
-| --- | --- |
-| **Summarize this document** | Read top-to-bottom, return a tight summary |
-| **Outline this document** | Heading outline + paragraph counts |
-| **Improve writing in selection** | Tighten the current selection, track changes on |
-| **Fix typos and inconsistencies** | Sweep + highlight + chat summary |
-| **Simplify the selection** | Plain-language rewrite with track changes |
-| **Add comments on this section** | Review-mode pass, no text edits |
-| **Answer using my context files** | RAG over the folders you've added |
-| **Clear highlighting** | Wipe every highlight in one click |
+| Preset                            | What it does                                    |
+| --------------------------------- | ----------------------------------------------- |
+| **Summarize this document**       | Read top-to-bottom, return a tight summary      |
+| **Outline this document**         | Heading outline + paragraph counts              |
+| **Improve writing in selection**  | Tighten the current selection, track changes on |
+| **Fix typos and inconsistencies** | Sweep + highlight + chat summary                |
+| **Simplify the selection**        | Plain-language rewrite with track changes       |
+| **Add comments on this section**  | Review-mode pass, no text edits                 |
+| **Answer using my context files** | RAG over the folders you've added               |
+| **Clear highlighting**            | Wipe every highlight in one click               |
 
 ### Settings (Setup tab → Preferences)
 
@@ -145,18 +145,18 @@ The task pane and daemon both live on `localhost`. Nothing on your network can t
 
 Ten tools, all going through Office.js (no file-system mutation of the live `.docx`):
 
-| Tool | Use it for |
-| --- | --- |
-| `office_get_selection` | The implicit subject of "this", "here", "the selection" |
-| `office_read_paragraphs` | Read by ID, heading section, or range |
-| `office_insert_paragraphs` | Add new content after a paragraph or heading |
-| `office_replace_paragraphs` | Whole-paragraph rewrites, 1-to-1 |
-| `office_replace_section` | Find a heading, replace its section |
-| `office_replace_text` | Surgical sub-paragraph search/replace |
-| `office_highlight` | Color-coded by severity: error/warning/info/uncertain |
-| `office_clear_highlights` | By paragraph, section, or all |
-| `office_add_comment` | Anchored on a paragraph or specific text |
-| `office_clear_comments` | By paragraph, section, or all |
+| Tool                        | Use it for                                              |
+| --------------------------- | ------------------------------------------------------- |
+| `office_get_selection`      | The implicit subject of "this", "here", "the selection" |
+| `office_read_paragraphs`    | Read by ID, heading section, or range                   |
+| `office_insert_paragraphs`  | Add new content after a paragraph or heading            |
+| `office_replace_paragraphs` | Whole-paragraph rewrites, 1-to-1                        |
+| `office_replace_section`    | Find a heading, replace its section                     |
+| `office_replace_text`       | Surgical sub-paragraph search/replace                   |
+| `office_highlight`          | Color-coded by severity: error/warning/info/uncertain   |
+| `office_clear_highlights`   | By paragraph, section, or all                           |
+| `office_add_comment`        | Anchored on a paragraph or specific text                |
+| `office_clear_comments`     | By paragraph, section, or all                           |
 
 Every write tool respects your track-changes setting.
 
@@ -164,14 +164,14 @@ Every write tool respects your track-changes setting.
 
 Seven tools, A1 notation, 2D values arrays:
 
-| Tool | Use it for |
-| --- | --- |
-| `excel_get_selected_range` | The implicit subject of "these cells" |
-| `excel_list_sheets` | Worksheet inventory + used ranges |
-| `excel_read_range` | Read a range or a whole sheet's used range |
-| `excel_write_range` | Write a 2D values array (shape-checked) |
-| `excel_find_value` | Substring / whole-cell match across one or all sheets |
-| `excel_insert_rows` / `excel_delete_rows` | 1-based row indices |
+| Tool                                      | Use it for                                            |
+| ----------------------------------------- | ----------------------------------------------------- |
+| `excel_get_selected_range`                | The implicit subject of "these cells"                 |
+| `excel_list_sheets`                       | Worksheet inventory + used ranges                     |
+| `excel_read_range`                        | Read a range or a whole sheet's used range            |
+| `excel_write_range`                       | Write a 2D values array (shape-checked)               |
+| `excel_find_value`                        | Substring / whole-cell match across one or all sheets |
+| `excel_insert_rows` / `excel_delete_rows` | 1-based row indices                                   |
 
 ### What the agent will refuse
 
@@ -185,16 +185,19 @@ Seven tools, A1 notation, 2D values arrays:
 <summary><strong>Task pane shows "Disconnected — retrying…"</strong></summary>
 
 The daemon isn't running, or crashed. Open the tray menu → **Open logs** (`~/.claude/office-addins/daemon.log`). If the log ends mid-startup, the daemon will auto-restart up to 3 times before giving up.
+
 </details>
 
 <details>
 <summary><strong>"Sign-in required" banner appears</strong></summary>
 
 The Agent SDK couldn't authenticate. Either:
+
 - Sign in to Claude Code: `claude` in a terminal, follow the prompt.
 - Or set `ANTHROPIC_API_KEY` in your shell and **relaunch** the tray app (the daemon reads env at boot).
 
 After signing in, quit the tray app and reopen it.
+
 </details>
 
 <details>
@@ -203,12 +206,14 @@ After signing in, quit the tray app and reopen it.
 At daemon start the log shows `Loaded N MCP server(s) from ~/.claude.json: …` and an HTTP preflight line per server. The SDK silently drops any server whose initial handshake fails — restart the daemon (tray menu → **Restart daemon**) once the server is back up.
 
 `~/.claude.json` is read **once at daemon boot**. If you add or change an MCP server while the daemon is running, it won't be picked up until you restart — use the tray menu's **Restart daemon** item (no need to quit and relaunch the whole app).
+
 </details>
 
 <details>
 <summary><strong>Auto-detect can't find my workspace</strong></summary>
 
 If your folder has no `CLAUDE.md` or `.claude` marker and the heuristic doesn't fire, click **Pick…** in the suggest banner (or **+ Add workspace** in Setup) and choose the folder yourself. A `CLAUDE.md` is auto-created so the next open is silent.
+
 </details>
 
 <details>
@@ -217,6 +222,7 @@ If your folder has no `CLAUDE.md` or `.claude` marker and the heuristic doesn't 
 Quickest manual fallback (macOS and Windows): in Word/Excel, **Insert → My Add-ins → Manage My Add-ins → Upload My Add-in**, point at the appropriate file in `manifests/`.
 
 If that menu item is missing on your build:
+
 - **macOS:** copy `manifests/word.xml` to `~/Library/Containers/com.microsoft.Word/Data/Documents/wef/` (create the folder if missing). Same for Excel.
 - **Windows:** put both manifests in a folder, then File → Options → Trust Center → Trust Center Settings → Trusted Add-in Catalogs → add the path → check **Show in Menu** → restart Office. Microsoft's full guide: [Sideload an Office Add-in on Windows](https://learn.microsoft.com/en-us/office/dev/add-ins/testing/create-a-network-shared-folder-catalog-for-task-pane-and-content-add-ins).
 </details>
@@ -225,6 +231,7 @@ If that menu item is missing on your build:
 <summary><strong>Context-file changes don't seem to take effect</strong></summary>
 
 Saving any context entry restarts the agent session (preserving conversation history via `resume`) so the new `CLAUDE.md` loads. If you don't see the change, check that you're on the correct workspace — the topbar chip shows the active one.
+
 </details>
 
 ---
@@ -250,8 +257,8 @@ The SDK prefers `ANTHROPIC_API_KEY` over keychain OAuth when present.
 
 This is a single-user, run-it-yourself tool. The threat model is "your own machine, your own documents" — not a hardened multi-tenant service. Specifics worth knowing:
 
-- **The `.docx`/`.xlsx` filesystem-write denial is a foot-gun guard, not a security boundary.** It refuses obvious `Write`/`Edit`/`Bash` attempts to overwrite an open Office file (which would corrupt it), but it is regex-based and an agent determined to bypass it (string-built paths, `base64`-decoded payloads, etc.) can. It exists to stop *accidental* clobbering, not to contain a hostile agent. Edit Office files through the `office_*` / `excel_*` tools, not the filesystem.
-- **The local bridge is loopback-only and token-gated, but trusts every process running as you.** The WebSocket bridge binds `127.0.0.1` and requires a per-daemon 24-byte token; `/bridge-token` serves that token over same-origin HTTP. Browser cross-origin reads are blocked by CORS, but any *local process* running as your user (another app, a script) can read the token file and the endpoint. There's no protection against a malicious local process — out of scope for a personal tool.
+- **The `.docx`/`.xlsx` filesystem-write denial is a foot-gun guard, not a security boundary.** It refuses obvious `Write`/`Edit`/`Bash` attempts to overwrite an open Office file (which would corrupt it), but it is regex-based and an agent determined to bypass it (string-built paths, `base64`-decoded payloads, etc.) can. It exists to stop _accidental_ clobbering, not to contain a hostile agent. Edit Office files through the `office_*` / `excel_*` tools, not the filesystem.
+- **The local bridge is loopback-only and token-gated, but trusts every process running as you.** The WebSocket bridge binds `127.0.0.1` and requires a per-daemon 24-byte token; `/bridge-token` serves that token over same-origin HTTP. Browser cross-origin reads are blocked by CORS, but any _local process_ running as your user (another app, a script) can read the token file and the endpoint. There's no protection against a malicious local process — out of scope for a personal tool.
 - **`daemon.log` records your message text verbatim.** Every chat message you send is written in plaintext to `~/.claude/office-addins/daemon.log` (diagnostics, reachable from the tray menu). If you put confidential documents or prompts through the tool, treat that log as sensitive — it's not redacted. Delete it to scrub history.
 
 ---
