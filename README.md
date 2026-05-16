@@ -197,6 +197,8 @@ After signing in, quit the tray app and reopen it.
 <summary><strong>An MCP server I configured isn't visible to the agent</strong></summary>
 
 At daemon start the log shows `Loaded N MCP server(s) from ~/.claude.json: …` and an HTTP preflight line per server. The SDK silently drops any server whose initial handshake fails — restart the daemon (tray menu → **Restart daemon**) once the server is back up.
+
+`~/.claude.json` is read **once at daemon boot**. If you add or change an MCP server while the daemon is running, it won't be picked up until you restart — use the tray menu's **Restart daemon** item (no need to quit and relaunch the whole app).
 </details>
 
 <details>
