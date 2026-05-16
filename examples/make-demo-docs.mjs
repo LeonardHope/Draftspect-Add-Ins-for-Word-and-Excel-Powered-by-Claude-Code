@@ -11,7 +11,7 @@
 // (We never write Office files the add-in might have open — these are
 // fresh fixtures generated on disk, not live documents.)
 
-import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
