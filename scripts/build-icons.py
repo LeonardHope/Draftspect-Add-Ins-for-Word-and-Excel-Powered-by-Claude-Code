@@ -1,56 +1,60 @@
 #!/usr/bin/env python3
-"""Generate placeholder add-in icons.
+"""Generate the Office add-in icons (manifest IconUrl / HighResolutionIconUrl).
 
-Outputs taskpane/icon-32.png and taskpane/icon-80.png — referenced by the
-Office manifests (IconUrl / HighResolutionIconUrl). Plain "OC" mark on a
-soft-coral background so it's clearly a placeholder; swap in real artwork
-before any non-internal release.
+Same two-point "sparkle" mark as the menu-bar/tray icon
+(scripts/build-tray-icon.py), but as a full-color app tile: white sparkle
+on the coral brand background with rounded corners — what Office shows in
+the Add-ins gallery and the task-pane header.
+
+Outputs taskpane/icon-32.png and taskpane/icon-80.png (the sizes the
+manifests reference).
+
+Regenerate:  python3 scripts/build-icons.py
 """
+import math
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
+
+from PIL import Image, ImageDraw
 
 OUT_DIR = Path(__file__).resolve().parent.parent / "taskpane"
-BG = (217, 119, 87)   # coral
-FG = (255, 255, 255)
+BG = (217, 119, 87, 255)  # coral brand background
+FG = (255, 255, 255, 255)  # white sparkle
+
+
+def _star_points(cx, cy, r_out, r_in):
+    """8-vertex 4-point star: sharp cardinal points, pinched diagonal waist."""
+    pts = []
+    for i in range(8):
+        ang = -math.pi / 2 + i * (math.pi / 4)  # start at top, clockwise
+        r = r_out if i % 2 == 0 else r_in
+        pts.append((cx + r * math.cos(ang), cy + r * math.sin(ang)))
+    return pts
 
 
 def make(size: int, out: Path) -> None:
-    img = Image.new("RGBA", (size, size), BG)
-    draw = ImageDraw.Draw(img)
+    # Supersample 4x then downscale for clean antialiased edges at small sizes.
+    ss = 4
+    S = size * ss
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
 
-    # Rounded corners (mask-and-paste so the alpha is correct).
-    radius = max(2, size // 6)
-    mask = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(mask).rounded_rectangle([(0, 0), (size, size)], radius, fill=255)
-    rounded = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    rounded.paste(img, (0, 0), mask)
+    # Rounded-rectangle coral tile.
+    radius = max(2, S // 6)
+    d.rounded_rectangle([(0, 0), (S - 1, S - 1)], radius, fill=BG)
 
-    draw = ImageDraw.Draw(rounded)
-    text = "OC"
-    # Find a font size that fits; macOS ships SF Pro / Helvetica.
-    for candidate in [
-        "/System/Library/Fonts/Helvetica.ttc",
-        "/System/Library/Fonts/SFNS.ttf",
-        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-    ]:
-        if Path(candidate).exists():
-            font_path = candidate
-            break
-    else:
-        font_path = None
+    # Primary sparkle lower-left of center; companion sparkle upper-right —
+    # identical composition to the tray mark so the brand reads consistently.
+    pcx, pcy = S * 0.42, S * 0.56
+    p_out = S * 0.42
+    d.polygon(_star_points(pcx, pcy, p_out, p_out * 0.16), fill=FG)
 
-    font_size = max(8, int(size * 0.5))
-    if font_path:
-        font = ImageFont.truetype(font_path, font_size)
-    else:
-        font = ImageFont.load_default()
-    bbox = draw.textbbox((0, 0), text, font=font)
-    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    pos = ((size - tw) / 2 - bbox[0], (size - th) / 2 - bbox[1])
-    draw.text(pos, text, fill=FG, font=font)
+    scx, scy = S * 0.76, S * 0.24
+    s_out = S * 0.18
+    d.polygon(_star_points(scx, scy, s_out, s_out * 0.18), fill=FG)
 
-    rounded.save(out, "PNG")
-    print(f"wrote {out} ({size}×{size})")
+    img = img.resize((size, size), Image.LANCZOS)
+    img.save(out, "PNG")
+    print(f"wrote {out} ({size}x{size})")
 
 
 if __name__ == "__main__":
