@@ -187,6 +187,9 @@ function pickPathFromMain({ include_files, default_path, title, button_label }) 
 // ping-pong of sharing a pane.
 const sessions = new Map();
 const workspaceByKey = new Map();
+// Panes whose workspace the user set explicitly (Change workspace). Their
+// workspace must NOT be re-derived from the document folder on reconnect.
+const explicitWorkspaceKeys = new Set();
 
 function sessionFor(key) {
   return sessions.get(key) ?? null;
@@ -254,8 +257,24 @@ function scheduleSessionStart(cwd, sessionId, key, host, reason, { replay = true
 // ping-pong and burn an unasked turn. We only re-render this pane's own
 // transcript. The loop starts lazily on the first user message
 // (onUserMessage → ensureLoopForMessage).
-async function onPaneConnect(key, host) {
+async function onPaneConnect(key, host, doc) {
   if (!key) return;
+  // Resolve this pane's workspace from the open document's own folder,
+  // server-side and immediately — deterministic, no loop start. Without
+  // this, cwdForKey() falls back to matterFolder (the daemon's launch
+  // cwd, often the repo root) until a message or the taskpane's set_cwd
+  // round-trip lands, so get_context / replay read the WRONG folder's
+  // CLAUDE.md (the symptom: context files bleeding across documents).
+  // Skip if the user explicitly pinned this pane's workspace, or a live
+  // session already owns the cwd.
+  if (doc && !explicitWorkspaceKeys.has(key) && !sessionFor(key)) {
+    try {
+      const folder = await resolveWorkspaceRoot(doc);
+      if (folder) workspaceByKey.set(key, folder);
+    } catch {
+      /* unresolvable (cloud/unsaved) — keep the fallback */
+    }
+  }
   const cwd = cwdForKey(key);
   diag(`hello → replay key=${key} cwd=${cwd} (no loop start on connect)`);
   await sendTranscriptReplayTo(key, host, cwd);
@@ -295,7 +314,7 @@ const bridge = createBridge({
   port: WS_PORT,
   token: BRIDGE_TOKEN,
   allowedOrigins: [HTTP_ORIGIN],
-  onHello: (key, host) => onPaneConnect(key, host),
+  onHello: (key, host, doc) => onPaneConnect(key, host, doc),
   onUserMessage: (key, host) => ensureLoopForMessage(key, host),
   extraHandlers: {
     pick_path: async (msg, reply) => {
@@ -331,6 +350,11 @@ const bridge = createBridge({
         } else {
           throw new Error("set_cwd requires `cwd` or `autodetect_from_doc`");
         }
+        // Remember an explicit pick so a later reconnect doesn't re-derive
+        // this pane's workspace from the doc folder; an autodetect switch
+        // clears that pin (the doc folder is authoritative again).
+        if (explicitPick) explicitWorkspaceKeys.add(key);
+        else explicitWorkspaceKeys.delete(key);
         const resolved = await switchFolder(cwd, key, host);
         // Drop a CLAUDE.md marker on explicit user pick so the next open of
         // any doc in this folder auto-detects silently.
