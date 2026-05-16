@@ -626,6 +626,182 @@ export function createOfficeBridgeMcp(bridge, host = null, paneKey = null) {
     wrap("excel_clear_range"),
   );
 
+  // ---- Tier 2 editing tools ----
+  const office_set_list = tool(
+    "office_set_list",
+    "Turn existing paragraphs into a bulleted (ordered:false) or numbered (ordered:true) list. The first paragraph starts the list; the rest join it.",
+    {
+      ids: z.array(z.string()).describe("Paragraph IDs, in document order."),
+      ordered: z.boolean().optional().describe("true = numbered, false/omitted = bulleted."),
+      track_changes: z.boolean().optional(),
+    },
+    wrap("office_set_list"),
+  );
+
+  const office_insert_image = tool(
+    "office_insert_image",
+    "Insert an inline image from a base64 string. Obtain it with a shell command, e.g. `base64 -i /path/to/img.png`, then pass the result. Appended at the document end, or after a paragraph.",
+    {
+      base64: z.string().describe("Base64-encoded image bytes (data: prefix is tolerated)."),
+      after_paragraph_id: z.string().optional(),
+      alt_text: z.string().optional(),
+      track_changes: z.boolean().optional(),
+    },
+    wrap("office_insert_image"),
+  );
+
+  const office_insert_hyperlink = tool(
+    "office_insert_hyperlink",
+    "Make text a hyperlink: a query substring within a paragraph, or the whole paragraph if no query.",
+    {
+      paragraph_id: z.string(),
+      query: z.string().optional().describe("Text within the paragraph to linkify."),
+      url: z.string().describe("The target URL."),
+      track_changes: z.boolean().optional(),
+    },
+    wrap("office_insert_hyperlink"),
+  );
+
+  const office_insert_bookmark = tool(
+    "office_insert_bookmark",
+    "Drop a named bookmark on a paragraph (or a query substring within it).",
+    {
+      paragraph_id: z.string(),
+      query: z.string().optional(),
+      name: z.string().describe("Bookmark name."),
+    },
+    wrap("office_insert_bookmark"),
+  );
+
+  const office_find = tool(
+    "office_find",
+    "Search the document. Returns matches with the containing paragraph ID so you can follow up with an edit tool. This is the read-only counterpart to office_replace_text.",
+    {
+      query: z.string(),
+      match_case: z.boolean().optional(),
+      whole_word: z.boolean().optional(),
+      wildcards: z.boolean().optional().describe("Word wildcard search."),
+    },
+    wrap("office_find"),
+  );
+
+  const office_list_comments = tool(
+    "office_list_comments",
+    "List every comment with its id, author, text, and resolved state.",
+    {},
+    wrap("office_list_comments"),
+  );
+
+  const office_reply_to_comment = tool(
+    "office_reply_to_comment",
+    "Reply to an existing comment thread (get the id from office_list_comments).",
+    { comment_id: z.string(), text: z.string() },
+    wrap("office_reply_to_comment"),
+  );
+
+  const office_resolve_comment = tool(
+    "office_resolve_comment",
+    "Mark a comment resolved, or reopen it (resolved:false).",
+    {
+      comment_id: z.string(),
+      resolved: z.boolean().optional().describe("Default true."),
+    },
+    wrap("office_resolve_comment"),
+  );
+
+  const office_header_footer = tool(
+    "office_header_footer",
+    "Set the primary header or footer text on every section (replaces existing content).",
+    {
+      which: z.enum(["header", "footer"]),
+      text: z.string(),
+    },
+    wrap("office_header_footer"),
+  );
+
+  const excel_sort_range = tool(
+    "excel_sort_range",
+    "Sort a range by one column (0-based index within the range).",
+    {
+      address: z.string().describe("A1 range to sort."),
+      sheet: z.string().optional(),
+      key: z.number().int().optional().describe("0-based column index within the range."),
+      ascending: z.boolean().optional().describe("Default true."),
+      has_headers: z.boolean().optional().describe("Treat the first row as headers."),
+    },
+    wrap("excel_sort_range"),
+  );
+
+  const excel_autofilter = tool(
+    "excel_autofilter",
+    "Apply an AutoFilter to a range, or pass clear:true to remove the sheet's filter.",
+    {
+      address: z.string().optional().describe("A1 range (required unless clear)."),
+      sheet: z.string().optional(),
+      clear: z.boolean().optional(),
+    },
+    wrap("excel_autofilter"),
+  );
+
+  const excel_create_table = tool(
+    "excel_create_table",
+    "Turn a range into a named Excel table (ListObject).",
+    {
+      address: z.string(),
+      sheet: z.string().optional(),
+      has_headers: z.boolean().optional().describe("Default true."),
+      name: z.string().optional(),
+    },
+    wrap("excel_create_table"),
+  );
+
+  const excel_add_table_rows = tool(
+    "excel_add_table_rows",
+    "Append rows to an existing table by name.",
+    {
+      table: z.string().describe("Table name."),
+      values: z.array(z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))),
+      index: z.number().int().optional().describe("Insert position; omit to append."),
+    },
+    wrap("excel_add_table_rows"),
+  );
+
+  const excel_create_chart = tool(
+    "excel_create_chart",
+    "Add a chart from a data range. chart_type: column | bar | line | pie | scatter | area.",
+    {
+      data_address: z.string(),
+      sheet: z.string().optional(),
+      chart_type: z.string().optional().describe("Default 'column'."),
+      title: z.string().optional(),
+    },
+    wrap("excel_create_chart"),
+  );
+
+  const excel_set_column_width = tool(
+    "excel_set_column_width",
+    "Set a fixed column width (points), or autofit:true.",
+    {
+      address: z.string().describe("A1 range covering the columns."),
+      sheet: z.string().optional(),
+      width: z.number().optional(),
+      autofit: z.boolean().optional(),
+    },
+    wrap("excel_set_column_width"),
+  );
+
+  const excel_set_row_height = tool(
+    "excel_set_row_height",
+    "Set a fixed row height (points), or autofit:true.",
+    {
+      address: z.string().describe("A1 range covering the rows."),
+      sheet: z.string().optional(),
+      height: z.number().optional(),
+      autofit: z.boolean().optional(),
+    },
+    wrap("excel_set_row_height"),
+  );
+
   const wordTools = [
     office_get_selection,
     office_read_paragraphs,
@@ -644,6 +820,15 @@ export function createOfficeBridgeMcp(bridge, host = null, paneKey = null) {
     office_set_table_cell,
     office_get_document_text,
     office_get_outline,
+    office_set_list,
+    office_insert_image,
+    office_insert_hyperlink,
+    office_insert_bookmark,
+    office_find,
+    office_list_comments,
+    office_reply_to_comment,
+    office_resolve_comment,
+    office_header_footer,
   ];
   const excelTools = [
     excel_get_selected_range,
@@ -662,6 +847,13 @@ export function createOfficeBridgeMcp(bridge, host = null, paneKey = null) {
     excel_delete_sheet,
     excel_rename_sheet,
     excel_clear_range,
+    excel_sort_range,
+    excel_autofilter,
+    excel_create_table,
+    excel_add_table_rows,
+    excel_create_chart,
+    excel_set_column_width,
+    excel_set_row_height,
   ];
   const tools =
     host === "word" ? wordTools : host === "excel" ? excelTools : [...wordTools, ...excelTools];
