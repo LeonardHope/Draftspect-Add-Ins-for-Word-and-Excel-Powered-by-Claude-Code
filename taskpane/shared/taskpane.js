@@ -331,7 +331,6 @@ const SETTINGS_KEY = "claude-code-office-settings-v1";
 function defaultSettings() {
   return {
     showDiagnostics: true,
-    autoSwitchWorkspace: false,
     trackChangesMode: "always", // "always" | "modifications" | "never"
   };
 }
@@ -360,8 +359,6 @@ function applySettings() {
   $messages.dataset.showDiagnostics = String(settings.showDiagnostics);
   const $showDiag = document.getElementById("setting-show-diagnostics");
   if ($showDiag) $showDiag.checked = settings.showDiagnostics;
-  const $autoSwitch = document.getElementById("setting-auto-switch-workspace");
-  if ($autoSwitch) $autoSwitch.checked = settings.autoSwitchWorkspace;
   const $tcMode = document.getElementById("setting-track-changes-mode");
   if ($tcMode) $tcMode.value = settings.trackChangesMode || "always";
 }
@@ -380,16 +377,6 @@ document.getElementById("setting-track-changes-mode").addEventListener("change",
   if (wsReady) {
     wsSend({ type: "context_update", track_changes_mode: settings.trackChangesMode });
   }
-});
-
-document.getElementById("setting-auto-switch-workspace").addEventListener("change", (e) => {
-  settings.autoSwitchWorkspace = e.target.checked;
-  saveSettings(settings);
-  applySettings();
-  // Re-evaluate the suggest banner — turning on auto-switch may now silently
-  // fire a marker-confidence switch; turning it off should leave the banner
-  // visible if there's still a mismatch.
-  refreshWorkspaceSuggestBanner();
 });
 
 applySettings();
@@ -1478,17 +1465,12 @@ const $addWorkspace = document.getElementById("add-workspace");
 const $workspaceError = document.getElementById("workspace-error");
 const $workspaceWarning = document.getElementById("workspace-warning");
 
-// Suggest-banner: shown in Setup → Workspace folder when the active doc's
-// folder isn't inside the current workspace and the daemon's suggestWorkspaceRoot
-// returns a candidate. Lets the user one-click confirm, pick a different
-// folder, or dismiss.
-const $workspaceSuggest = document.getElementById("workspace-suggest");
-const $workspaceSuggestPath = document.getElementById("workspace-suggest-path");
-const $workspaceSuggestAccept = document.getElementById("workspace-suggest-accept");
-const $workspaceSuggestPick = document.getElementById("workspace-suggest-pick");
-const $workspaceSuggestDismiss = document.getElementById("workspace-suggest-dismiss");
-let pendingWorkspaceSuggestion = null; // { cwd, confidence } from the daemon
-let dismissedWorkspaceSuggestionForDoc = null; // activeDocUrl the user dismissed for
+// The workspace is simply the folder the open document lives in. We follow
+// it automatically. An explicit "Change workspace" pick overrides that and
+// sticks until the active document moves to a *different* folder — tracked
+// via lastFollowedDocDir so a re-render/reconnect doesn't yank the user's
+// deliberate choice back.
+let lastFollowedDocDir = null;
 
 function setWorkspaceDisplay(cwd) {
   currentWorkspaceCwd = cwd;
@@ -1528,7 +1510,7 @@ async function refreshWorkspaceFromDaemon() {
   try {
     const r = await sendRequest("get_cwd_state");
     if (r.current_cwd) setWorkspaceDisplay(r.current_cwd);
-    await refreshWorkspaceSuggestBanner();
+    await autoFollowDocWorkspace();
   } catch {
     /* ignore on initial boot */
   }
@@ -1536,7 +1518,7 @@ async function refreshWorkspaceFromDaemon() {
 
 async function loadWorkspaceSection() {
   $workspaceError.hidden = true;
-  await refreshWorkspaceSuggestBanner();
+  await autoFollowDocWorkspace();
   try {
     const r = await sendRequest("get_cwd_state");
     renderWorkspacesList(r.recent || [], r.current_cwd);
@@ -1545,42 +1527,23 @@ async function loadWorkspaceSection() {
   }
 }
 
-// Banner controller: shown when the active Word doc lives outside the
-// current workspace and the daemon has a candidate workspace root to suggest.
-// The daemon's suggestion is the doc's own folder (confidence "doc",
-// deterministic). When autoSwitchWorkspace is on we skip the banner and
-// switch straight to it — there's nothing to confirm; it's just "where
-// this document lives". The banner only appears as a manual fallback if
-// the user turned auto-switch off.
-async function refreshWorkspaceSuggestBanner() {
-  pendingWorkspaceSuggestion = null;
-  $workspaceSuggest.hidden = true;
-
+// The workspace follows the open document's folder automatically. Workspace
+// detection is deterministic now (the doc's own folder), so there's nothing
+// to confirm — no banner, no setting. We switch when the doc's folder isn't
+// the current workspace, UNLESS the user made an explicit pick for this same
+// doc-folder (lastFollowedDocDir), in which case their choice stands until
+// they open a document in a different folder.
+async function autoFollowDocWorkspace() {
   if (!activeDocUrl) return;
-  if (dismissedWorkspaceSuggestionForDoc === activeDocUrl) return;
-
   const docDir = docDirFromActiveUrl(activeDocUrl);
-  if (currentWorkspaceCwd && docDir && isInOrUnder(docDir, currentWorkspaceCwd)) return;
-
-  let suggestion = null;
-  try {
-    const r = await sendRequest("suggest_workspace", { doc_path: activeDocUrl });
-    suggestion = r.suggestion;
-  } catch (e) {
-    console.warn("[suggest_workspace]", e);
+  if (!docDir) return; // cloud doc (no filesystem path) — leave workspace as-is
+  if (docDir === lastFollowedDocDir) return; // already handled (incl. explicit override)
+  if (currentWorkspaceCwd && isInOrUnder(docDir, currentWorkspaceCwd)) {
+    lastFollowedDocDir = docDir; // doc already inside the workspace — fine
     return;
   }
-  if (!suggestion) return;
-
-  if (suggestion.confidence === "doc" && settings.autoSwitchWorkspace) {
-    doSwitch(null, { autodetectFromDoc: true });
-    return;
-  }
-
-  pendingWorkspaceSuggestion = suggestion;
-  $workspaceSuggestPath.textContent = suggestion.cwd;
-  $workspaceSuggestPath.title = suggestion.cwd;
-  $workspaceSuggest.hidden = false;
+  lastFollowedDocDir = docDir;
+  await doSwitch(null, { autodetectFromDoc: true });
 }
 
 function renderWorkspacesList(recent, currentCwd) {
@@ -1596,8 +1559,15 @@ function renderWorkspacesList(recent, currentCwd) {
   }
 
   $workspacesList.innerHTML = "";
+  const heading = document.createElement("div");
+  heading.className = "workspaces-heading";
+  heading.textContent = "Recent workspaces";
+  $workspacesList.appendChild(heading);
   if (list.length === 0) {
-    $workspacesList.innerHTML = '<div class="references-empty">No workspaces yet.</div>';
+    const empty = document.createElement("div");
+    empty.className = "references-empty";
+    empty.textContent = "No recent workspaces yet.";
+    $workspacesList.appendChild(empty);
     return;
   }
 
@@ -1659,6 +1629,10 @@ async function doSwitch(cwd, { autodetectFromDoc = false } = {}) {
     const payload = autodetectFromDoc ? { autodetect_from_doc: activeDocUrl } : { cwd };
     const r = await sendRequest("set_cwd", payload);
     if (!r.ok) throw new Error(r.error || "switch failed");
+    // An explicit pick (not the auto-follow) is a deliberate override: pin
+    // it to the current doc's folder so autoFollowDocWorkspace won't yank
+    // it back until the user opens a document in a different folder.
+    if (!autodetectFromDoc) lastFollowedDocDir = docDirFromActiveUrl(activeDocUrl) || null;
     // The daemon emits cwd_changed which updates the chip via assistant_event.
     // Clear chat — visually distinguishing the new session from the old.
     $messages.innerHTML = "";
@@ -1674,35 +1648,8 @@ async function doSwitch(cwd, { autodetectFromDoc = false } = {}) {
 // Clicking the topbar chip jumps to the Setup tab where the workspace UI lives.
 $workspaceChip.addEventListener("click", () => setActiveTab("setup"));
 
-// Suggest-banner buttons.
-$workspaceSuggestAccept.addEventListener("click", () => {
-  if (!pendingWorkspaceSuggestion) return;
-  const cwd = pendingWorkspaceSuggestion.cwd;
-  pendingWorkspaceSuggestion = null;
-  $workspaceSuggest.hidden = true;
-  doSwitch(cwd);
-});
-$workspaceSuggestPick.addEventListener("click", async () => {
-  const startPath = pendingWorkspaceSuggestion?.cwd || null;
-  pendingWorkspaceSuggestion = null;
-  $workspaceSuggest.hidden = true;
-  try {
-    const picked = await pickPathNative({
-      start_path: startPath,
-      title: "Choose a workspace folder",
-    });
-    if (picked) doSwitch(picked.path);
-  } catch (e) {
-    console.error("[picker]", e);
-  }
-});
-$workspaceSuggestDismiss.addEventListener("click", () => {
-  dismissedWorkspaceSuggestionForDoc = activeDocUrl;
-  pendingWorkspaceSuggestion = null;
-  $workspaceSuggest.hidden = true;
-});
-
-// "+ Add workspace" — opens the native folder picker; on pick, switch to that folder.
+// "Change workspace" — opens the native folder picker; on pick, switch to
+// that folder (a deliberate override of the auto-followed doc folder).
 $addWorkspace.addEventListener("click", async () => {
   try {
     const picked = await pickPathNative({ title: "Choose a workspace folder" });

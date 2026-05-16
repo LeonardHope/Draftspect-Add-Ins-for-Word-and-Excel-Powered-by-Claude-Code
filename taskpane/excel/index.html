@@ -86,37 +86,16 @@
         <div class="setup-section">
           <h3>Workspace folder</h3>
           <p class="setup-help">
-            The folder Claude treats as the current working directory. Click any row to switch.
-            Determines which <code>CLAUDE.md</code>, context files, and prior conversation history
-            apply.
+            The folder Claude treats as the current working directory — it follows the open
+            document's folder automatically. Determines which <code>CLAUDE.md</code>, context files,
+            and prior conversation history apply. Use <strong>Change workspace</strong> to override;
+            your choice holds until you open a document in a different folder.
           </p>
-          <div class="matter-suggest" id="workspace-suggest" hidden>
-            <div class="matter-suggest-body">
-              <div class="matter-suggest-label">Use this as the workspace?</div>
-              <div class="matter-suggest-path" id="workspace-suggest-path">—</div>
-            </div>
-            <div class="matter-suggest-actions">
-              <button type="button" class="btn-primary btn-small" id="workspace-suggest-accept">
-                Yes
-              </button>
-              <button type="button" class="btn-secondary btn-small" id="workspace-suggest-pick">
-                Pick…
-              </button>
-              <button
-                type="button"
-                class="icon-btn matter-suggest-dismiss"
-                id="workspace-suggest-dismiss"
-                title="Dismiss"
-              >
-                ×
-              </button>
-            </div>
-          </div>
           <div class="references-list" id="workspaces-list">
             <div class="references-loading">Loading…</div>
           </div>
           <button type="button" class="btn-primary btn-small" id="add-workspace">
-            + Add workspace
+            Change workspace
           </button>
           <div class="form-error" id="workspace-error" hidden></div>
         </div>
@@ -163,16 +142,6 @@
             </div>
           </div>
 
-          <label class="setting-row">
-            <input type="checkbox" id="setting-auto-switch-workspace" />
-            <div class="setting-text">
-              <div>Auto-switch workspace to active doc's folder</div>
-              <small
-                >When you open the add-in in a different document, switch the workspace
-                automatically. Off by default; turn on if you keep one doc per folder.</small
-              >
-            </div>
-          </label>
           <label class="setting-row">
             <input type="checkbox" id="setting-show-diagnostics" />
             <div class="setting-text">
