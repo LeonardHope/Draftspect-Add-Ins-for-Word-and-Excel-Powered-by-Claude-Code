@@ -1018,27 +1018,18 @@ body {
   font-style: italic;
   padding: 8px 0;
 }
-/* "Recent workspaces" label above the recents list — distinct from the
-   section <h3> so it's clear the rows below are history, not the active
-   workspace. */
-.workspaces-heading {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--send-bg);
-  padding: 6px 0 2px;
-  border-top: 1px solid var(--border, rgba(127, 127, 127, 0.25));
-  margin-top: 4px;
-}
-/* Tint the recents rows so the list reads as a secondary, switch-back
-   convenience rather than the primary control. */
-#workspaces-list .reference-row {
+/* The current workspace path, shown read-only in Setup. Monospace +
+   wrap so a long absolute path is fully visible at a glance. */
+.current-workspace {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--fg);
   background: color-mix(in srgb, var(--send-bg) 7%, transparent);
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.25));
   border-radius: 6px;
-}
-#workspaces-list .reference-row.active {
-  background: color-mix(in srgb, var(--send-bg) 16%, transparent);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  overflow-wrap: anywhere;
 }
 .reference-row {
   display: flex;

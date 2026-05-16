@@ -84,16 +84,13 @@
     <section class="tab-content" data-tab="setup" hidden>
       <div class="setup-content">
         <div class="setup-section">
-          <h3>Workspace folder</h3>
+          <h3>Workspace</h3>
           <p class="setup-help">
-            The folder Claude treats as the current working directory — it follows the open
-            document's folder automatically. Determines which <code>CLAUDE.md</code>, context files,
-            and prior conversation history apply. Use <strong>Change workspace</strong> to override;
-            your choice holds until you open a document in a different folder.
+            The folder Claude works in — follows the open document automatically. Sets which
+            <code>CLAUDE.md</code>, context files, and chat history apply. Override with
+            <strong>Change workspace</strong>; it holds until you open a doc elsewhere.
           </p>
-          <div class="references-list" id="workspaces-list">
-            <div class="references-loading">Loading…</div>
-          </div>
+          <div class="current-workspace" id="workspace-cwd" title="">Loading…</div>
           <button type="button" class="btn-primary btn-small" id="add-workspace">
             Change workspace
           </button>
@@ -103,9 +100,8 @@
         <div class="setup-section">
           <h3>Context files</h3>
           <p class="setup-help">
-            Folders or individual files Claude should consider as background for this workspace —
-            notes, prior drafts, reference material, exports. Saved to this workspace's
-            <code>CLAUDE.md</code>.
+            Background files for this workspace — notes, prior drafts, references. Saved to its
+            <code>CLAUDE.md</code> and read on demand.
           </p>
           <div class="references-list" id="context-list">
             <div class="references-loading">Loading…</div>
@@ -125,18 +121,15 @@
 
           <div class="setting-row">
             <div class="setting-text">
-              <div>Track changes mode</div>
+              <div>Track changes</div>
               <select id="setting-track-changes-mode" class="setting-select">
-                <option value="always">Always track (recommended)</option>
-                <option value="modifications">
-                  Modifications only (skip fresh-section drafts)
-                </option>
-                <option value="never">Never track (commit changes directly)</option>
+                <option value="always">Always (recommended)</option>
+                <option value="modifications">Modifications only</option>
+                <option value="never">Never</option>
               </select>
               <small
-                >How Claude should use Word's track-changes feature. "Always" means every edit is
-                reviewable. "Modifications only" lets multi-paragraph fresh drafts land directly
-                while keeping smaller in-place edits reviewable. "Never" commits everything.</small
+                >“Modifications only” lets fresh multi-paragraph drafts land untracked while keeping
+                in-place edits reviewable.</small
               >
             </div>
           </div>
@@ -144,11 +137,8 @@
           <label class="setting-row">
             <input type="checkbox" id="setting-show-diagnostics" />
             <div class="setting-text">
-              <div>Show diagnostic info in chat</div>
-              <small
-                >Session init, tool calls, and turn-boundary events. Noisy day-to-day; useful when
-                something feels wrong.</small
-              >
+              <div>Show diagnostics in chat</div>
+              <small>Session, tool, and turn events. Off is quieter.</small>
             </div>
           </label>
         </div>
