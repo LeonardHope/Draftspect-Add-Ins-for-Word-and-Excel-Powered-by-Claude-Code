@@ -5,10 +5,11 @@ live workbook. Run the prompts in order in the task pane.
 
 ## Setup
 
-1. Open a blank workbook in Excel (Book1 is fine).
+1. Open **`starter.xlsx`** (in this folder) in Excel — a blank one-sheet
+   workbook, ready for the agent to fill.
 2. Open the Claude Code task pane.
-3. Workspace: point it at `examples/excel-demo/` (this folder). It has a
-   `CLAUDE.md`, so it's detected without a prompt.
+3. Workspace: it's this folder (`examples/excel-demo/`) — detected from the
+   workbook's location, no prompt.
 4. Setup tab → Context files → add `q3-sales.csv`.
 
 ## Prompts

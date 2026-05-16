@@ -5,29 +5,24 @@ live document. Run the prompts in order in the task pane.
 
 ## Setup
 
-1. Open a **blank** Word document.
-2. Paste the starter text below, then style the two lines marked `‹H2›`
-   as **Heading 2** (so the section tools have a section to work on).
-   Delete the `‹H2›` markers after styling.
-3. Open the Claude Code task pane.
-4. Workspace: point it at `examples/word-demo/` (this folder). It has a
-   `CLAUDE.md`, so it's detected without a prompt.
-5. Setup tab → Context files → add `style-guide.md`.
-6. Leave Track Changes **on** (the default).
+1. Open **`starter.docx`** (in this folder) in Word. It already has the
+   title, the announcement paragraph with deliberate house-style
+   violations, and real **Heading 2** sections (_Background_,
+   _Next steps_) for the section tools to work on.
+2. Open the Claude Code task pane.
+3. Workspace: it's this folder (`examples/word-demo/`) — detected from the
+   doc's location, no prompt.
+4. Setup tab → Context files → add `style-guide.md`.
+5. Leave Track Changes **on** (the default).
 
-### Starter text (paste into the blank doc)
+For reference, `starter.docx` contains:
 
 ```
 Acme relay Q3 rollout
-
 We are thrilled to announce that acme relay will ship to 5 pilot teams on 6/3/26!
-
-‹H2› Background
-
+Background            (Heading 2)
 The relay project began in March and was scoped by the platform team.
-
-‹H2› Next steps
-
+Next steps            (Heading 2)
 Teams will get onboarding docs and we will collect feedback after two weeks.
 ```
 
