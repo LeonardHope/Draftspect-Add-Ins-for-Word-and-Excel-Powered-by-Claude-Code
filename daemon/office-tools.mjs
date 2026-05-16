@@ -31,11 +31,11 @@ function asMcpError(err) {
  * @param {{ callTaskpaneTool: (name: string, args: object) => Promise<any> }} bridge
  * @param {"word"|"excel"|null} host
  */
-export function createOfficeBridgeMcp(bridge, host = null) {
-  // Route to this session's host pane explicitly (the tool-name prefix is
-  // the bridge's fallback). host is null only in the degraded pre-bind
-  // case; the prefix still routes correctly there.
-  const call = (name, args) => bridge.callTaskpaneTool(name, args, host);
+export function createOfficeBridgeMcp(bridge, host = null, paneKey = null) {
+  // `host` selects which tool family to register; `paneKey` routes every
+  // call to the exact document pane this session belongs to (so two open
+  // Word docs don't cross-talk).
+  const call = (name, args) => bridge.callTaskpaneTool(name, args, paneKey);
 
   const office_get_selection = tool(
     "office_get_selection",

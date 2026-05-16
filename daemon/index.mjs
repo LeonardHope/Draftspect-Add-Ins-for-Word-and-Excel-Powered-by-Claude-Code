@@ -172,30 +172,37 @@ function pickPathFromMain({ include_files, default_path, title, button_label }) 
 // bridge handlers that fire during the top-level awaits below
 // (preflightHttpMcpServers, etc.) don't hit a TDZ on these bindings.
 //
-//   sessions:        host -> live session { cwd, sessionId, host,
+//   sessions:        paneKey -> live session { key, host, cwd, sessionId,
 //                    abortController, settled, turnActive, interrupted }
-//   workspaceByHost: host -> last-known cwd, so a pane that connects
+//   workspaceByKey:  paneKey -> last-known cwd, so a pane that connects
 //                    before its first message still resolves a workspace
-//                    (and survives that host's loop ending).
+//                    (and survives that pane's loop ending).
+//
+// paneKey identifies one open document (host + doc path), so two Word
+// docs (or two workbooks) open at once each get their own independent
+// loop/session/queue/workspace. The host is still carried for the tool
+// family + per-host behavior. SDK-transcript resume is still keyed by
+// (host, cwd) — two documents in the same folder share a resume hint;
+// that's a deliberate, documented simplification, far better than the
+// ping-pong of sharing a pane.
 const sessions = new Map();
-const workspaceByHost = new Map();
+const workspaceByKey = new Map();
 
-function sessionFor(host) {
-  return sessions.get(host) ?? null;
+function sessionFor(key) {
+  return sessions.get(key) ?? null;
 }
 
-// This host's workspace: its live session's cwd, else the last cwd we
+// This pane's workspace: its live session's cwd, else the last cwd we
 // recorded for it, else the launch default.
-function cwdForHost(host) {
-  return sessionFor(host)?.cwd ?? workspaceByHost.get(host) ?? matterFolder;
+function cwdForKey(key) {
+  return sessionFor(key)?.cwd ?? workspaceByKey.get(key) ?? matterFolder;
 }
 
-// Resolve the session id to replay for (host, cwd). Prefer this host's
-// live session id (set once the SDK reports init); otherwise the id
-// persisted for (host, cwd) — covers the window before the SDK has
-// re-inited, and keeps Word's and Excel's transcripts separate.
-async function resolveReplaySessionId(host, cwd) {
-  const live = sessionFor(host);
+// Resolve the session id to replay for this pane. Prefer the pane's live
+// session id (set once the SDK reports init); otherwise the id persisted
+// for (host, cwd) — covers the window before the SDK has re-inited.
+async function resolveReplaySessionId(key, host, cwd) {
+  const live = sessionFor(key);
   if (live?.sessionId) return live.sessionId;
   if (!host || !cwd) return null;
   try {
@@ -205,12 +212,12 @@ async function resolveReplaySessionId(host, cwd) {
   }
 }
 
-// Reconstruct (host, cwd)'s prior conversation from its .jsonl and push
-// it to THAT host's pane only. Sent on every taskpane hello and after a
-// workspace switch (cwd_changed). Empty events => fresh chat, no divider.
-async function sendTranscriptReplayTo(host, cwd) {
+// Reconstruct this pane's prior conversation from its .jsonl and push it
+// to THAT pane only. Sent on every taskpane hello and after a workspace
+// switch (cwd_changed). Empty events => fresh chat, no divider.
+async function sendTranscriptReplayTo(key, host, cwd) {
   try {
-    const sessionId = await resolveReplaySessionId(host, cwd);
+    const sessionId = await resolveReplaySessionId(key, host, cwd);
     const { events, truncated } = sessionId
       ? await readTranscript(sessionId, { maxEvents: 200 })
       : { events: [], truncated: false };
@@ -221,52 +228,52 @@ async function sendTranscriptReplayTo(host, cwd) {
         truncated,
         events,
       },
-      host,
+      key,
     );
   } catch (err) {
     console.warn("[daemon] transcript replay failed:", err?.message ?? err);
   }
 }
 
-// Start (or resume) this host's session on the next tick — past the
+// Start (or resume) this pane's session on the next tick — past the
 // current message handler / the agent loop's finally block (which clears
-// sessions.get(host)), so startSessionForFolder builds cleanly. Every
-// path that (re)starts a host's session — first message, post-stream-end,
+// sessions.get(key)), so startSessionForFolder builds cleanly. Every
+// path that (re)starts a pane's session — first message, post-stream-end,
 // post-Stop — funnels through here; `reason` only flavors the failure log.
-function scheduleSessionStart(cwd, sessionId, host, reason, { replay = true } = {}) {
+function scheduleSessionStart(cwd, sessionId, key, host, reason, { replay = true } = {}) {
   setImmediate(() => {
-    startSessionForFolder(cwd, sessionId, { host: host ?? null, replay }).catch((err) =>
+    startSessionForFolder(cwd, sessionId, { key, host: host ?? null, replay }).catch((err) =>
       console.error(`[daemon] ${reason} session start failed:`, err?.message ?? err),
     );
   });
 }
 
-// Called on every taskpane hello — for EITHER host, both panes possibly
-// connected at once. Connecting a pane must NOT start the agent loop:
-// connect-driven starts amplified the old connect/disconnect ping-pong
-// and burn an unasked turn. We only re-render this pane's own
-// (host, cwd) transcript. The loop starts lazily on the first user
-// message (onUserMessage → ensureLoopForMessage).
-async function onPaneConnect(host) {
-  if (!host) return;
-  const cwd = cwdForHost(host);
-  diag(`hello → replay host=${host} cwd=${cwd} (no loop start on connect)`);
-  await sendTranscriptReplayTo(host, cwd);
+// Called on every taskpane hello — for ANY open document, many panes
+// possibly connected at once. Connecting a pane must NOT start the agent
+// loop: connect-driven starts amplified the old connect/disconnect
+// ping-pong and burn an unasked turn. We only re-render this pane's own
+// transcript. The loop starts lazily on the first user message
+// (onUserMessage → ensureLoopForMessage).
+async function onPaneConnect(key, host) {
+  if (!key) return;
+  const cwd = cwdForKey(key);
+  diag(`hello → replay key=${key} cwd=${cwd} (no loop start on connect)`);
+  await sendTranscriptReplayTo(key, host, cwd);
 }
 
-// Called when a user message arrives from `host`, BEFORE it's queued.
-// Each host has its OWN loop — independent of the other host entirely.
-// If this host's loop is already live, do nothing (its userMessageStream
-// will consume the message). Otherwise start it, resuming this host's
-// (host, cwd) conversation. Deferred via setImmediate so it lands after
-// the message is queued and after any in-flight finally; the new loop
-// then drains this host's queue. The OTHER host's loop is never touched.
-async function ensureLoopForMessage(host) {
-  if (!host) return;
-  const cwd = cwdForHost(host);
-  const live = sessionFor(host);
+// Called when a user message arrives from a pane, BEFORE it's queued.
+// Each pane has its OWN loop — independent of every other pane. If this
+// pane's loop is already live, do nothing (its userMessageStream will
+// consume the message). Otherwise start it, resuming this (host, cwd)
+// conversation. Deferred via setImmediate so it lands after the message
+// is queued and after any in-flight finally; the new loop then drains
+// this pane's queue. No other pane's loop is ever touched.
+async function ensureLoopForMessage(key, host) {
+  if (!key) return;
+  const cwd = cwdForKey(key);
+  const live = sessionFor(key);
   if (live && !live.settled) {
-    return; // this host's loop is live and will consume the message
+    return; // this pane's loop is live and will consume the message
   }
   let resumeId = null;
   try {
@@ -274,11 +281,11 @@ async function ensureLoopForMessage(host) {
   } catch {
     /* fresh session if lookup fails */
   }
-  diag(`message → ensure loop host=${host} cwd=${cwd} resume=${resumeId ?? "(new)"}`);
+  diag(`message → ensure loop key=${key} cwd=${cwd} resume=${resumeId ?? "(new)"}`);
   // replay:false — the pane already shows the chat (incl. the message
   // that just triggered this). An empty transcript_replay here (a
   // brand-new session has no .jsonl yet) would wipe the user's prompt.
-  scheduleSessionStart(cwd, resumeId, host, "user message", { replay: false });
+  scheduleSessionStart(cwd, resumeId, key, host, "user message", { replay: false });
 }
 
 // ---------------------------------------------------------------------------
@@ -288,8 +295,8 @@ const bridge = createBridge({
   port: WS_PORT,
   token: BRIDGE_TOKEN,
   allowedOrigins: [HTTP_ORIGIN],
-  onHello: (host) => onPaneConnect(host),
-  onUserMessage: (host) => ensureLoopForMessage(host),
+  onHello: (key, host) => onPaneConnect(key, host),
+  onUserMessage: (key, host) => ensureLoopForMessage(key, host),
   extraHandlers: {
     pick_path: async (msg, reply) => {
       try {
@@ -309,7 +316,7 @@ const bridge = createBridge({
         });
       }
     },
-    set_cwd: async (msg, reply, host) => {
+    set_cwd: async (msg, reply, key, host) => {
       try {
         let cwd;
         let explicitPick = false;
@@ -324,7 +331,7 @@ const bridge = createBridge({
         } else {
           throw new Error("set_cwd requires `cwd` or `autodetect_from_doc`");
         }
-        const resolved = await switchFolder(cwd, host);
+        const resolved = await switchFolder(cwd, key, host);
         // Drop a CLAUDE.md marker on explicit user pick so the next open of
         // any doc in this folder auto-detects silently.
         let markerCreated = false;
@@ -364,25 +371,25 @@ const bridge = createBridge({
         });
       }
     },
-    get_cwd_state: async (msg, reply, host) => {
+    get_cwd_state: async (msg, reply, key) => {
       const recent = await getRecentFolders();
       reply({
         type: "get_cwd_state_result",
         ok: true,
-        // This host's own workspace, resolvable even before its first
+        // This pane's own workspace, resolvable even before its first
         // message (lazy start ⇒ no session yet).
-        current_cwd: cwdForHost(host),
+        current_cwd: cwdForKey(key),
         recent,
         request_id: msg.request_id,
       });
     },
-    stop_agent: async (msg, reply, host) => {
-      // User clicked Stop in this pane. Abort only THIS host's loop; the
+    stop_agent: async (msg, reply, key) => {
+      // User clicked Stop in this pane. Abort only THIS pane's loop; the
       // query() iterator's catch path sees AbortError and (because we
       // flag the session interrupted) emits turn_complete interrupted so
       // the taskpane flips to Ready and auto-restarts a resuming loop.
-      // The other host's loop is untouched.
-      const s = sessionFor(host);
+      // Every other pane's loop is untouched.
+      const s = sessionFor(key);
       if (s) {
         s.interrupted = true;
         s.abortController.abort();
@@ -409,9 +416,9 @@ const bridge = createBridge({
         });
       }
     },
-    get_context: async (msg, reply, host) => {
+    get_context: async (msg, reply, key) => {
       try {
-        const cwd = cwdForHost(host);
+        const cwd = cwdForKey(key);
         const entries = cwd ? await getContextEntries(cwd) : [];
         reply({ type: "get_context_result", ok: true, cwd, entries, request_id: msg.request_id });
       } catch (e) {
@@ -423,9 +430,9 @@ const bridge = createBridge({
         });
       }
     },
-    set_context: async (msg, reply, host) => {
+    set_context: async (msg, reply, key, host) => {
       try {
-        const cwd = cwdForHost(host);
+        const cwd = cwdForKey(key);
         if (!cwd) throw new Error("No workspace selected");
         const { saved, errors } = await setContextEntries(cwd, msg.entries || []);
         reply({
@@ -436,10 +443,10 @@ const bridge = createBridge({
           errors,
           request_id: msg.request_id,
         });
-        // Restart THIS host's loop so its agent re-reads CLAUDE.md and
-        // picks up the updated context block on the next turn. The other
-        // host is unaffected.
-        restartSession(host, { reason: "context_changed" }).catch((err) =>
+        // Restart THIS pane's loop so its agent re-reads CLAUDE.md and
+        // picks up the updated context block on the next turn. Every
+        // other pane is unaffected.
+        restartSession(key, host, { reason: "context_changed" }).catch((err) =>
           console.warn("[daemon] restart failed:", err.message),
         );
       } catch (e) {
@@ -649,11 +656,11 @@ function customPermissionHandler(toolName, input) {
 // We also prepend a context header to each turn so the agent always knows the
 // active doc and selection without having to call office_get_doc_info first.
 // ---------------------------------------------------------------------------
-async function* userMessageStream(host, session) {
+async function* userMessageStream(key, session) {
   while (true) {
     let msg;
     try {
-      msg = await bridge.nextUserMessage(host);
+      msg = await bridge.nextUserMessage(key);
     } catch {
       // Bridge rejected the waiter — session was aborted. Exit cleanly so
       // the underlying query() iterator can shut down without a stray error.
@@ -701,39 +708,38 @@ function renderContextHeader(ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// Session management. Each host runs its own independent query() loop with
-// its own cwd; switching workspace or reloading config restarts only that
-// host's loop. Histories live in ~/.claude/projects/<hash>/*.jsonl per the
-// SDK's normal persistence. `sessions` / `workspaceByHost` are declared at
-// the top of the module (above createBridge) so bridge handlers that fire
-// during top-level awaits (e.g. preflightHttpMcpServers, which can block
-// for 5s) don't hit a TDZ on those bindings.
+// Session management. Each open document (paneKey) runs its own
+// independent query() loop with its own cwd; switching workspace or
+// reloading config restarts only that pane's loop. Histories live in
+// ~/.claude/projects/<hash>/*.jsonl per the SDK's normal persistence.
+// `sessions` / `workspaceByKey` are declared at the top of the module
+// (above createBridge) so bridge handlers that fire during top-level
+// awaits (e.g. preflightHttpMcpServers, which can block for 5s) don't
+// hit a TDZ on those bindings.
 // ---------------------------------------------------------------------------
 
 async function startSessionForFolder(
   cwd,
   resumeSessionId = null,
-  { host = null, replay = true } = {},
+  { key = null, host = null, replay = true } = {},
 ) {
-  // Replace only THIS host's prior loop (same-host restart: workspace
-  // switch, config reload, post-Stop/stream-end resume). The other
-  // host's loop is never involved — no cross-host abort, no interrupt.
-  // Clear only this host's queue so the other host's queued message is
-  // untouched.
-  // Only when actually superseding a live same-host session: abort it and
-  // drain its queue. On a FRESH start there is no prior session and the
-  // first user message has already been enqueued for this host (it's what
+  // Only when actually superseding a live session for THIS pane: abort it
+  // and drain its queue (same-pane restart: workspace switch, config
+  // reload, post-Stop/stream-end resume). No other pane's loop is ever
+  // involved. On a FRESH start there is no prior session and the first
+  // user message has already been enqueued for this pane (it's what
   // triggered the lazy start) — clearing here would drop it, leaving
   // userMessageStream awaiting forever and the SDK with no first input
   // (no init, taskpane stuck on "Working…").
-  const prior = sessionFor(host);
+  const prior = sessionFor(key);
   if (prior) {
     prior.abortController.abort();
-    bridge.clearUserMessages(host);
+    bridge.clearUserMessages(key);
   }
 
   const abortController = new AbortController();
   const session = {
+    key,
     cwd,
     sessionId: resumeSessionId,
     abortController,
@@ -741,22 +747,20 @@ async function startSessionForFolder(
     turnActive: false,
     host,
   };
-  sessions.set(host, session);
-  workspaceByHost.set(host, cwd);
+  sessions.set(key, session);
+  workspaceByKey.set(key, cwd);
 
-  // Register only this host's tool family. A session is created lazily
-  // on the first user message (onUserMessage → ensureLoopForMessage), so
-  // `host` is normally "word" or "excel"; it's only null in the degraded
-  // case where a set_cwd arrived before any pane bound a host (both
-  // families registered).
-  const officeMcp = createOfficeBridgeMcp(bridge, host);
+  // Register only this host's tool family, routed to THIS pane. A session
+  // is created lazily on the first user message (onUserMessage →
+  // ensureLoopForMessage), so `host` is normally "word" or "excel".
+  const officeMcp = createOfficeBridgeMcp(bridge, host, key);
 
   await touchFolder(cwd);
   console.log(
     `[daemon] Starting session for ${cwd}` +
       (resumeSessionId ? ` (resuming ${resumeSessionId.slice(0, 8)}…)` : " (new session)"),
   );
-  bridge.sendAssistantEvent({ event: "cwd_changed", cwd, resumed: !!resumeSessionId }, host);
+  bridge.sendAssistantEvent({ event: "cwd_changed", cwd, resumed: !!resumeSessionId }, key);
   // Structured readiness signal to the Electron shell over the IPC
   // channel — the session loop is up. Lets main.mjs flip the tray to
   // "Ready" without sniffing our stdout for a log substring. No-op when
@@ -773,7 +777,7 @@ async function startSessionForFolder(
   // Skipped when this start was triggered by the user's own message
   // (replay:false): the pane already shows that message, and a fresh
   // session's empty replay would erase it.
-  if (replay) sendTranscriptReplayTo(host, cwd).catch(() => {});
+  if (replay) sendTranscriptReplayTo(key, host, cwd).catch(() => {});
 
   // Re-read the drafting setup append fresh each session start.
   const append = await buildSystemPromptAppend();
@@ -795,7 +799,7 @@ async function startSessionForFolder(
   (async () => {
     try {
       for await (const msg of query({
-        prompt: userMessageStream(host, session),
+        prompt: userMessageStream(key, session),
         options: {
           cwd,
           systemPrompt: {
@@ -822,7 +826,7 @@ async function startSessionForFolder(
           ...(resumeSessionId ? { resume: resumeSessionId } : {}),
         },
       })) {
-        if (sessionFor(host) !== session) break; // this host's loop was restarted
+        if (sessionFor(key) !== session) break; // this pane's loop was restarted
         if (msg.type === "result") sawResult = true;
         handleAgentMessage(msg, session);
       }
@@ -831,15 +835,15 @@ async function startSessionForFolder(
       // unexpectedly — almost always a usage-limit hit. Tell the taskpane
       // (so it leaves "Working…") and auto-restart the loop so the next
       // message has a live consumer (same rationale as the Stop path).
-      if (sessionFor(host) === session && !sawResult && !session.interrupted) {
+      if (sessionFor(key) === session && !sawResult && !session.interrupted) {
         session.turnActive = false;
         const friendly = rateLimitHint
           ? `Claude usage limit reached. ${rateLimitHint}`
           : "The agent stopped unexpectedly — this is usually a Claude usage limit. Wait for your limit to reset, or set ANTHROPIC_API_KEY to use an API key.";
-        bridge.sendAssistantEvent({ event: "error", error: friendly }, host);
-        bridge.sendAssistantEvent({ event: "turn_complete", subtype: "stream_ended" }, host);
-        const { cwd: rcwd, sessionId: rsid, host: rhost } = session;
-        scheduleSessionStart(rcwd, rsid, rhost, "post-stream-end");
+        bridge.sendAssistantEvent({ event: "error", error: friendly }, key);
+        bridge.sendAssistantEvent({ event: "turn_complete", subtype: "stream_ended" }, key);
+        const { key: rkey, cwd: rcwd, sessionId: rsid, host: rhost } = session;
+        scheduleSessionStart(rcwd, rsid, rkey, rhost, "post-stream-end");
       }
     } catch (err) {
       if (err.name === "AbortError" || /aborted/i.test(err.message ?? "")) {
@@ -852,13 +856,13 @@ async function startSessionForFolder(
         // with nobody to consume it. Let the finally block clear this
         // host's session first (via setImmediate); the fresh
         // startSessionForFolder then builds cleanly.
-        if (sessionFor(host) === session && session.interrupted) {
+        if (sessionFor(key) === session && session.interrupted) {
           session.turnActive = false;
-          bridge.sendAssistantEvent({ event: "turn_complete", interrupted: true }, host);
-          const { cwd: rcwd, sessionId: rsid, host: rhost } = session;
-          scheduleSessionStart(rcwd, rsid, rhost, "post-stop");
+          bridge.sendAssistantEvent({ event: "turn_complete", interrupted: true }, key);
+          const { key: rkey, cwd: rcwd, sessionId: rsid, host: rhost } = session;
+          scheduleSessionStart(rcwd, rsid, rkey, rhost, "post-stop");
         }
-      } else if (sessionFor(host) === session) {
+      } else if (sessionFor(key) === session) {
         session.turnActive = false;
         console.error("[daemon] Agent loop crashed:", err);
         // Detect auth failures and surface them as a distinct event so the
@@ -871,44 +875,44 @@ async function startSessionForFolder(
             msgText,
           ) || /OAUTH/i.test(msgText);
         if (isAuth) {
-          bridge.sendAssistantEvent({ event: "auth_error", error: msgText }, host);
+          bridge.sendAssistantEvent({ event: "auth_error", error: msgText }, key);
         } else {
-          bridge.sendAssistantEvent({ event: "error", error: msgText }, host);
+          bridge.sendAssistantEvent({ event: "error", error: msgText }, key);
         }
       }
     } finally {
       session.settled = true;
-      if (sessionFor(host) === session) sessions.delete(host);
+      if (sessionFor(key) === session) sessions.delete(key);
     }
   })();
 
   return session;
 }
 
-async function switchFolder(rawCwd, host = null) {
+async function switchFolder(rawCwd, key, host = null) {
   const cwd = resolve(rawCwd);
   // Validate the path is a directory.
   const s = await stat(cwd);
   if (!s.isDirectory()) throw new Error(`Not a directory: ${cwd}`);
-  // Switch ONLY the requesting pane's host to the target folder; resume
-  // that (host, cwd)'s prior conversation if one is on record. The other
-  // host stays in its own workspace, untouched.
+  // Switch ONLY the requesting pane to the target folder; resume that
+  // (host, cwd)'s prior conversation if one is on record. Every other
+  // pane stays in its own workspace, untouched.
   const resumeId = host ? await getSessionId(host, cwd) : null;
-  await startSessionForFolder(cwd, resumeId, { host });
+  await startSessionForFolder(cwd, resumeId, { key, host });
   return cwd;
 }
 
-// Re-launch one host's loop (same cwd, resuming via session_id) so that
+// Re-launch one pane's loop (same cwd, resuming via session_id) so that
 // changes to CLAUDE.md, the drafting setup, or other config loaded at
 // session-init take effect without losing conversation history. No-op if
-// that host has no live loop.
-async function restartSession(host, { reason = "config_changed" } = {}) {
-  const s = sessionFor(host);
+// that pane has no live loop.
+async function restartSession(key, host, { reason = "config_changed" } = {}) {
+  const s = sessionFor(key);
   if (!s) return;
   const { cwd, sessionId } = s;
-  console.log(`[daemon] Restarting ${host} session for ${cwd} (reason: ${reason})`);
-  bridge.sendAssistantEvent({ event: "config_reloaded", reason }, host);
-  await startSessionForFolder(cwd, sessionId, { host });
+  console.log(`[daemon] Restarting session for ${cwd} (reason: ${reason})`);
+  bridge.sendAssistantEvent({ event: "config_reloaded", reason }, key);
+  await startSessionForFolder(cwd, sessionId, { key, host });
 }
 
 function handleAgentMessage(msg, session) {
@@ -932,7 +936,7 @@ function handleAgentMessage(msg, session) {
             session_id: msg.session_id,
             model: msg.model,
           },
-          session?.host,
+          session?.key,
         );
         // Record this session_id for THIS (host, cwd) so the next time
         // this pane connects (or you switch back) it resumes here.
@@ -951,7 +955,7 @@ function handleAgentMessage(msg, session) {
       // content_block_stop, message_start/stop) we currently ignore.
       const delta = msg.event?.delta;
       if (delta?.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) {
-        bridge.sendAssistantText(delta.text, session?.host);
+        bridge.sendAssistantText(delta.text, session?.key);
       }
       break;
     }
@@ -969,7 +973,7 @@ function handleAgentMessage(msg, session) {
               tool: block.name,
               input: block.input,
             },
-            session?.host,
+            session?.key,
           );
         }
       }
@@ -978,7 +982,7 @@ function handleAgentMessage(msg, session) {
     case "result": {
       console.log(`[agent] turn complete (${msg.subtype})`);
       if (session) session.turnActive = false;
-      bridge.sendAssistantEvent({ event: "turn_complete", subtype: msg.subtype }, session?.host);
+      bridge.sendAssistantEvent({ event: "turn_complete", subtype: msg.subtype }, session?.key);
       break;
     }
     case "user": {
