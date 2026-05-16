@@ -1420,21 +1420,43 @@ const $addFolderModalClose = document.getElementById("add-folder-modal-close");
 const $addFolderBrowseFile = document.getElementById("add-folder-browse-file");
 const $addFolderBrowseFolder = document.getElementById("add-folder-browse-folder");
 
-function openAddFolderModal() {
-  $addFolderModalTitle.textContent = "Add folder or file";
-  $addFolderPath.value = "";
+function openAddFolderModal(prefillPath = "", kind = null) {
+  $addFolderModalTitle.textContent =
+    kind === "file" ? "Add file" : kind === "folder" ? "Add folder" : "Add folder or file";
+  $addFolderPath.value = prefillPath;
   $addFolderDescription.value = "";
   $addFolderError.hidden = true;
   $addFolderModal.hidden = false;
-  setTimeout(() => $addFolderPath.focus(), 0);
+  // If the path is already chosen (the common flow — user picked first),
+  // jump straight to the description field.
+  setTimeout(() => (prefillPath ? $addFolderDescription : $addFolderPath).focus(), 0);
 }
 function closeAddFolderModal() {
   $addFolderModal.hidden = true;
 }
 
-document.querySelectorAll(".add-folder-trigger").forEach((btn) => {
-  btn.addEventListener("click", () => openAddFolderModal());
-});
+// Two explicit entry points: pick first (single-mode dialog, reliable on
+// every OS), then the modal just collects an optional description.
+async function addContextEntry(includeFiles) {
+  let picked;
+  try {
+    picked = await pickPathNative({
+      start_path: currentWorkspaceCwd || null,
+      include_files: includeFiles,
+    });
+  } catch (e) {
+    console.error("[picker]", e);
+    return;
+  }
+  if (!picked) return; // canceled — don't open an empty modal
+  openAddFolderModal(picked.path, includeFiles ? "file" : "folder");
+}
+document
+  .querySelectorAll(".add-context-folder")
+  .forEach((b) => b.addEventListener("click", () => addContextEntry(false)));
+document
+  .querySelectorAll(".add-context-file")
+  .forEach((b) => b.addEventListener("click", () => addContextEntry(true)));
 $addFolderCancel.addEventListener("click", closeAddFolderModal);
 $addFolderModalClose.addEventListener("click", closeAddFolderModal);
 $addFolderModal.addEventListener("click", (e) => {
