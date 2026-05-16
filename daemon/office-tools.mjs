@@ -434,6 +434,22 @@ export function createOfficeBridgeMcp(bridge, host = null) {
     },
   );
 
+  const excel_select_range = tool(
+    "excel_select_range",
+    "Select a cell or range in the spreadsheet, making it the user's active selection (and switching to its sheet). Use this when the user asks to 'select', 'highlight', 'go to', or 'jump to' a cell/range/result.",
+    {
+      address: z.string().describe("A1-style cell or range to select, e.g. 'B4' or 'A1:D9'."),
+      sheet: z.string().optional().describe("Worksheet name; defaults to the active sheet."),
+    },
+    async (args) => {
+      try {
+        return asMcpResult(await call("excel_select_range", args));
+      } catch (e) {
+        return asMcpError(e);
+      }
+    },
+  );
+
   const wordTools = [
     office_get_selection,
     office_read_paragraphs,
@@ -454,6 +470,7 @@ export function createOfficeBridgeMcp(bridge, host = null) {
     excel_find_value,
     excel_insert_rows,
     excel_delete_rows,
+    excel_select_range,
   ];
   const tools =
     host === "word" ? wordTools : host === "excel" ? excelTools : [...wordTools, ...excelTools];
