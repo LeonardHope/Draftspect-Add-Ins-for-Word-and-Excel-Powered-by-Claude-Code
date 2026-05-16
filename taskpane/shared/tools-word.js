@@ -49,7 +49,7 @@ function getId(paragraph, index, idMode) {
 
 function findIndexById(paragraphs, id, idMode) {
   if (idMode === "uniqueLocalId") {
-    return paragraphs.items.findIndex(p => p.uniqueLocalId === id);
+    return paragraphs.items.findIndex((p) => p.uniqueLocalId === id);
   }
   const i = parseFallbackId(id);
   if (i === null || i < 0 || i >= paragraphs.items.length) return -1;
@@ -76,7 +76,9 @@ async function withTrackChanges(context, track_changes, body) {
       try {
         context.document.changeTrackingMode = prevTracking;
         await context.sync();
-      } catch { /* swallow — don't shadow original error */ }
+      } catch {
+        /* swallow — don't shadow original error */
+      }
     }
   }
 }
@@ -107,8 +109,8 @@ function snapshotParagraphs(paragraphs, idMode) {
 // Find the index of a heading paragraph by case-insensitive exact text match.
 function findHeadingIndex(snapshot, headingText) {
   const target = headingText.trim().toLowerCase();
-  return snapshot.findIndex(p =>
-    headingLevel(p.style) !== null && p.text.trim().toLowerCase() === target
+  return snapshot.findIndex(
+    (p) => headingLevel(p.style) !== null && p.text.trim().toLowerCase() === target,
   );
 }
 
@@ -168,7 +170,7 @@ function findBodyReferenceIndex(snapshot, fromIdx) {
 
 function inferBodyStyle(snapshot, fromIdx) {
   const { idx } = findBodyReferenceIndex(snapshot, fromIdx);
-  return idx === -1 ? null : (snapshot[idx].style || null);
+  return idx === -1 ? null : snapshot[idx].style || null;
 }
 
 // Paragraph-format properties cloned from a reference body paragraph onto
@@ -176,9 +178,15 @@ function inferBodyStyle(snapshot, fromIdx) {
 // style), so a style-name copy alone leaves inserts left-aligned with no
 // first-line indent and no inter-paragraph spacing.
 const CLONED_PARA_FORMAT_PROPS = [
-  "alignment", "firstLineIndent", "leftIndent", "rightIndent",
-  "lineSpacing", "spaceBefore", "spaceAfter",
-  "lineUnitBefore", "lineUnitAfter",
+  "alignment",
+  "firstLineIndent",
+  "leftIndent",
+  "rightIndent",
+  "lineSpacing",
+  "spaceBefore",
+  "spaceAfter",
+  "lineUnitBefore",
+  "lineUnitAfter",
 ];
 
 // Queue a load of the format props off a reference paragraph. Call before
@@ -197,7 +205,9 @@ function snapshotParagraphFormat(refPara) {
     try {
       const v = refPara[prop];
       if (v !== undefined && v !== null) out[prop] = v;
-    } catch { /* prop unsupported on this build */ }
+    } catch {
+      /* prop unsupported on this build */
+    }
   }
   return out;
 }
@@ -208,7 +218,11 @@ function applyParagraphFormat(targetPara, fmt) {
   for (const prop of CLONED_PARA_FORMAT_PROPS) {
     const v = fmt[prop];
     if (v !== undefined && v !== null) {
-      try { targetPara[prop] = v; } catch { /* prop unsupported on this build */ }
+      try {
+        targetPara[prop] = v;
+      } catch {
+        /* prop unsupported on this build */
+      }
     }
   }
 }
@@ -249,7 +263,7 @@ export async function toolGetSelection() {
       idMode = "index";
     }
 
-    const selSnapshot = selParas.items.map(p => ({
+    const selSnapshot = selParas.items.map((p) => ({
       // When uniqueLocalId is unavailable, return null rather than guessing
       // an index by text-matching — duplicate paragraphs in any doc make
       // text-match unreliable. The agent should fall back to text references.
@@ -284,7 +298,7 @@ export async function toolReadParagraphs({ ids, heading_section, range, preview 
     let truncate = false;
     if (ids && ids.length > 0) {
       const set = new Set(ids);
-      picked = snapshot.filter(p => set.has(p.id));
+      picked = snapshot.filter((p) => set.has(p.id));
     } else if (heading_section) {
       const startIdx = findHeadingIndex(snapshot, heading_section);
       if (startIdx === -1) {
@@ -312,7 +326,7 @@ export async function toolReadParagraphs({ ids, heading_section, range, preview 
     const PREVIEW_LEN = 500;
 
     return {
-      paragraphs: picked.map(p => {
+      paragraphs: picked.map((p) => {
         const full = p.text;
         const isTruncated = truncate && full.length > PREVIEW_LEN;
         return {
@@ -339,83 +353,91 @@ export async function toolReadParagraphs({ ids, heading_section, range, preview 
 // ---------------------------------------------------------------------------
 // Tool: office_insert_paragraphs
 // ---------------------------------------------------------------------------
-export async function toolInsertParagraphs({ after, content, track_changes, style_per_para, provenance_comment }) {
+export async function toolInsertParagraphs({
+  after,
+  content,
+  track_changes,
+  style_per_para,
+  provenance_comment,
+}) {
   if (!content || content.length === 0) throw new Error("content must be non-empty");
 
   return await Word.run(async (context) => {
     return await withTrackChanges(context, track_changes, async () => {
-    const { paragraphs, idMode } = await getParagraphsWithIds(context);
-    const snapshot = snapshotParagraphs(paragraphs, idMode);
+      const { paragraphs, idMode } = await getParagraphsWithIds(context);
+      const snapshot = snapshotParagraphs(paragraphs, idMode);
 
-    let anchorIdx;
-    if (after?.id) {
-      anchorIdx = findIndexById(paragraphs, after.id, idMode);
-      if (anchorIdx === -1) {
-        throw new Error(`Anchor paragraph not found: ${after.id}`);
+      let anchorIdx;
+      if (after?.id) {
+        anchorIdx = findIndexById(paragraphs, after.id, idMode);
+        if (anchorIdx === -1) {
+          throw new Error(`Anchor paragraph not found: ${after.id}`);
+        }
+      } else if (after?.heading) {
+        anchorIdx = findHeadingIndex(snapshot, after.heading);
+        if (anchorIdx === -1) throw new Error(`Heading not found: "${after.heading}"`);
+      } else {
+        throw new Error("after must specify either id or heading");
       }
-    } else if (after?.heading) {
-      anchorIdx = findHeadingIndex(snapshot, after.heading);
-      if (anchorIdx === -1) throw new Error(`Heading not found: "${after.heading}"`);
-    } else {
-      throw new Error("after must specify either id or heading");
-    }
 
-    const anchor = paragraphs.items[anchorIdx];
-    // If no explicit style is given, infer the section's body style so we
-    // don't inherit a heading's formatting. Start one past the anchor (the
-    // first paragraph the new content will sit alongside).
-    const useInferred = !(style_per_para && style_per_para.length === content.length);
-    const ref = useInferred ? findBodyReferenceIndex(snapshot, anchorIdx + 1) : { idx: -1, inSection: false };
-    const refIdx = ref.idx;
-    const inferredStyle = (refIdx === -1) ? null : (snapshot[refIdx].style || null);
+      const anchor = paragraphs.items[anchorIdx];
+      // If no explicit style is given, infer the section's body style so we
+      // don't inherit a heading's formatting. Start one past the anchor (the
+      // first paragraph the new content will sit alongside).
+      const useInferred = !(style_per_para && style_per_para.length === content.length);
+      const ref = useInferred
+        ? findBodyReferenceIndex(snapshot, anchorIdx + 1)
+        : { idx: -1, inSection: false };
+      const refIdx = ref.idx;
+      const inferredStyle = refIdx === -1 ? null : snapshot[refIdx].style || null;
 
-    // Clone the reference body paragraph's *direct* formatting (indent,
-    // alignment, spacing) — templates apply these manually, so the style
-    // name alone isn't enough. ONLY when the reference is from the
-    // insert's own section: the doc-wide fallback could be a title block
-    // or address line, and cloning its direct formatting onto a body
-    // insert would be visibly wrong. The style name is still taken from
-    // the fallback (low blast radius); only format-cloning is gated.
-    let refFmt = null;
-    if (refIdx !== -1 && ref.inSection) {
-      const refPara = paragraphs.items[refIdx];
-      loadParagraphFormat(refPara);
+      // Clone the reference body paragraph's *direct* formatting (indent,
+      // alignment, spacing) — templates apply these manually, so the style
+      // name alone isn't enough. ONLY when the reference is from the
+      // insert's own section: the doc-wide fallback could be a title block
+      // or address line, and cloning its direct formatting onto a body
+      // insert would be visibly wrong. The style name is still taken from
+      // the fallback (low blast radius); only format-cloning is gated.
+      let refFmt = null;
+      if (refIdx !== -1 && ref.inSection) {
+        const refPara = paragraphs.items[refIdx];
+        loadParagraphFormat(refPara);
+        await context.sync();
+        refFmt = snapshotParagraphFormat(refPara);
+      }
+
+      let cursor = anchor;
+      const inserted = [];
+      for (let i = 0; i < content.length; i++) {
+        const p = cursor.insertParagraph(content[i], Word.InsertLocation.after);
+        const explicit = style_per_para && style_per_para[i];
+        if (explicit) p.style = explicit;
+        else if (inferredStyle) p.style = inferredStyle;
+        if (refFmt && !explicit) applyParagraphFormat(p, refFmt);
+        inserted.push(p);
+        cursor = p;
+      }
+
+      if (provenance_comment && inserted.length > 0) {
+        inserted[0].getRange().insertComment(provenance_comment);
+      }
+
       await context.sync();
-      refFmt = snapshotParagraphFormat(refPara);
-    }
 
-    let cursor = anchor;
-    const inserted = [];
-    for (let i = 0; i < content.length; i++) {
-      const p = cursor.insertParagraph(content[i], Word.InsertLocation.after);
-      const explicit = style_per_para && style_per_para[i];
-      if (explicit) p.style = explicit;
-      else if (inferredStyle) p.style = inferredStyle;
-      if (refFmt && !explicit) applyParagraphFormat(p, refFmt);
-      inserted.push(p);
-      cursor = p;
-    }
+      let newIds;
+      if (idMode === "uniqueLocalId") {
+        for (const p of inserted) p.load("uniqueLocalId");
+        await context.sync();
+        newIds = inserted.map((p) => p.uniqueLocalId);
+      } else {
+        newIds = inserted.map((_, k) => fallbackId(anchorIdx + 1 + k));
+      }
 
-    if (provenance_comment && inserted.length > 0) {
-      inserted[0].getRange().insertComment(provenance_comment);
-    }
-
-    await context.sync();
-
-    let newIds;
-    if (idMode === "uniqueLocalId") {
-      for (const p of inserted) p.load("uniqueLocalId");
-      await context.sync();
-      newIds = inserted.map(p => p.uniqueLocalId);
-    } else {
-      newIds = inserted.map((_, k) => fallbackId(anchorIdx + 1 + k));
-    }
-
-    return {
-      inserted_count: inserted.length,
-      new_para_ids: newIds,
-      addressing: idMode,
-    };
+      return {
+        inserted_count: inserted.length,
+        new_para_ids: newIds,
+        addressing: idMode,
+      };
     });
   });
 }
@@ -423,45 +445,53 @@ export async function toolInsertParagraphs({ after, content, track_changes, styl
 // ---------------------------------------------------------------------------
 // Tool: office_replace_paragraphs
 // ---------------------------------------------------------------------------
-export async function toolReplaceParagraphs({ ids, content, track_changes, style_per_para, provenance_comment }) {
+export async function toolReplaceParagraphs({
+  ids,
+  content,
+  track_changes,
+  style_per_para,
+  provenance_comment,
+}) {
   if (!ids || ids.length === 0) throw new Error("ids must be non-empty");
   if (!content || content.length === 0) throw new Error("content must be non-empty");
   if (ids.length !== content.length) {
-    throw new Error(`ids.length (${ids.length}) must equal content.length (${content.length}). To grow or shrink a section, use office_insert_paragraphs or office_replace_section.`);
+    throw new Error(
+      `ids.length (${ids.length}) must equal content.length (${content.length}). To grow or shrink a section, use office_insert_paragraphs or office_replace_section.`,
+    );
   }
 
   return await Word.run(async (context) => {
     return await withTrackChanges(context, track_changes, async () => {
-    const { paragraphs, idMode } = await getParagraphsWithIds(context);
+      const { paragraphs, idMode } = await getParagraphsWithIds(context);
 
-    const targets = ids.map(id => {
-      const idx = findIndexById(paragraphs, id, idMode);
-      if (idx === -1) {
-        throw new Error(`Paragraph not found: ${id}`);
+      const targets = ids.map((id) => {
+        const idx = findIndexById(paragraphs, id, idMode);
+        if (idx === -1) {
+          throw new Error(`Paragraph not found: ${id}`);
+        }
+        return { id, idx, paragraph: paragraphs.items[idx] };
+      });
+
+      // `insertText(..., "Replace")` swaps the text content while keeping the
+      // paragraph element (so style is preserved unless we override below).
+      for (let i = 0; i < targets.length; i++) {
+        const t = targets[i];
+        t.paragraph.insertText(content[i], Word.InsertLocation.replace);
+        if (style_per_para && style_per_para[i]) {
+          t.paragraph.style = style_per_para[i];
+        }
       }
-      return { id, idx, paragraph: paragraphs.items[idx] };
-    });
 
-    // `insertText(..., "Replace")` swaps the text content while keeping the
-    // paragraph element (so style is preserved unless we override below).
-    for (let i = 0; i < targets.length; i++) {
-      const t = targets[i];
-      t.paragraph.insertText(content[i], Word.InsertLocation.replace);
-      if (style_per_para && style_per_para[i]) {
-        t.paragraph.style = style_per_para[i];
+      if (provenance_comment && targets.length > 0) {
+        targets[0].paragraph.getRange().insertComment(provenance_comment);
       }
-    }
 
-    if (provenance_comment && targets.length > 0) {
-      targets[0].paragraph.getRange().insertComment(provenance_comment);
-    }
+      await context.sync();
 
-    await context.sync();
-
-    return {
-      replaced_count: targets.length,
-      paragraph_ids: targets.map(t => t.id),
-    };
+      return {
+        replaced_count: targets.length,
+        paragraph_ids: targets.map((t) => t.id),
+      };
     });
   });
 }
@@ -469,7 +499,14 @@ export async function toolReplaceParagraphs({ ids, content, track_changes, style
 // ---------------------------------------------------------------------------
 // Tool: office_replace_text — surgical sub-paragraph search/replace
 // ---------------------------------------------------------------------------
-export async function toolReplaceText({ paragraph_ids, find, replace, match_case, whole_word, track_changes }) {
+export async function toolReplaceText({
+  paragraph_ids,
+  find,
+  replace,
+  match_case,
+  whole_word,
+  track_changes,
+}) {
   if (!Array.isArray(paragraph_ids) || paragraph_ids.length === 0) {
     throw new Error("paragraph_ids must be a non-empty array");
   }
@@ -477,48 +514,48 @@ export async function toolReplaceText({ paragraph_ids, find, replace, match_case
     throw new Error("find must be a non-empty string");
   }
   if (typeof replace !== "string") {
-    throw new Error("replace must be a string (use \"\" to delete)");
+    throw new Error('replace must be a string (use "" to delete)');
   }
 
   return await Word.run(async (context) => {
     return await withTrackChanges(context, track_changes, async () => {
-    const { paragraphs, idMode } = await getParagraphsWithIds(context);
+      const { paragraphs, idMode } = await getParagraphsWithIds(context);
 
-    const targets = [];
-    for (const id of paragraph_ids) {
-      const idx = findIndexById(paragraphs, id, idMode);
-      if (idx === -1) {
-        throw new Error(`Paragraph not found: ${id}`);
+      const targets = [];
+      for (const id of paragraph_ids) {
+        const idx = findIndexById(paragraphs, id, idMode);
+        if (idx === -1) {
+          throw new Error(`Paragraph not found: ${id}`);
+        }
+        targets.push({ id, paragraph: paragraphs.items[idx] });
       }
-      targets.push({ id, paragraph: paragraphs.items[idx] });
-    }
 
-    const probes = targets.map(t => {
-      const results = t.paragraph.search(find, {
-        matchCase: !!match_case,
-        matchWholeWord: !!whole_word,
+      const probes = targets.map((t) => {
+        const results = t.paragraph.search(find, {
+          matchCase: !!match_case,
+          matchWholeWord: !!whole_word,
+        });
+        results.load("items");
+        return { id: t.id, results };
       });
-      results.load("items");
-      return { id: t.id, results };
-    });
-    await context.sync();
+      await context.sync();
 
-    let totalReplaced = 0;
-    const perParagraph = [];
-    for (const p of probes) {
-      const matches = p.results.items.length;
-      for (const r of p.results.items) {
-        r.insertText(replace, Word.InsertLocation.replace);
+      let totalReplaced = 0;
+      const perParagraph = [];
+      for (const p of probes) {
+        const matches = p.results.items.length;
+        for (const r of p.results.items) {
+          r.insertText(replace, Word.InsertLocation.replace);
+        }
+        perParagraph.push({ paragraph_id: p.id, replacements: matches });
+        totalReplaced += matches;
       }
-      perParagraph.push({ paragraph_id: p.id, replacements: matches });
-      totalReplaced += matches;
-    }
-    await context.sync();
+      await context.sync();
 
-    return {
-      total_replacements: totalReplaced,
-      per_paragraph: perParagraph,
-    };
+      return {
+        total_replacements: totalReplaced,
+        per_paragraph: perParagraph,
+      };
     });
   });
 }
@@ -526,88 +563,95 @@ export async function toolReplaceText({ paragraph_ids, find, replace, match_case
 // ---------------------------------------------------------------------------
 // Tool: office_replace_section
 // ---------------------------------------------------------------------------
-export async function toolReplaceSection({ heading, content, track_changes, style_per_para, provenance_comment }) {
+export async function toolReplaceSection({
+  heading,
+  content,
+  track_changes,
+  style_per_para,
+  provenance_comment,
+}) {
   if (!content || content.length === 0) throw new Error("content must be non-empty");
 
   return await Word.run(async (context) => {
     return await withTrackChanges(context, track_changes, async () => {
-    let para1 = await getParagraphsWithIds(context);
-    let paragraphs = para1.paragraphs;
-    let idMode = para1.idMode;
-    let snapshot = snapshotParagraphs(paragraphs, idMode);
+      let para1 = await getParagraphsWithIds(context);
+      let paragraphs = para1.paragraphs;
+      let idMode = para1.idMode;
+      let snapshot = snapshotParagraphs(paragraphs, idMode);
 
-    const startIdx = findHeadingIndex(snapshot, heading);
-    if (startIdx === -1) throw new Error(`Heading not found: "${heading}"`);
-    const endIdx = findSectionEnd(snapshot, startIdx);
+      const startIdx = findHeadingIndex(snapshot, heading);
+      if (startIdx === -1) throw new Error(`Heading not found: "${heading}"`);
+      const endIdx = findSectionEnd(snapshot, startIdx);
 
-    // Capture the existing section's body style AND direct formatting
-    // BEFORE deleting, so inserted paragraphs match. Without this, new
-    // paragraphs inherit the heading's style (centered/bold/large) and
-    // lose any manually-applied indent/justify/spacing.
-    const ref = (style_per_para && style_per_para.length === content.length)
-      ? { idx: -1, inSection: false }
-      : findBodyReferenceIndex(snapshot, startIdx + 1);
-    const refIdx = ref.idx;
-    const bodyStyle = (refIdx === -1) ? null : (snapshot[refIdx].style || null);
-    // Format-clone only when the reference is from this section (see
-    // findBodyReferenceIndex). Style name is still taken from the
-    // doc-wide fallback; direct formatting is not.
-    let refFmt = null;
-    if (refIdx !== -1 && ref.inSection) {
-      const refPara = paragraphs.items[refIdx];
-      loadParagraphFormat(refPara);
+      // Capture the existing section's body style AND direct formatting
+      // BEFORE deleting, so inserted paragraphs match. Without this, new
+      // paragraphs inherit the heading's style (centered/bold/large) and
+      // lose any manually-applied indent/justify/spacing.
+      const ref =
+        style_per_para && style_per_para.length === content.length
+          ? { idx: -1, inSection: false }
+          : findBodyReferenceIndex(snapshot, startIdx + 1);
+      const refIdx = ref.idx;
+      const bodyStyle = refIdx === -1 ? null : snapshot[refIdx].style || null;
+      // Format-clone only when the reference is from this section (see
+      // findBodyReferenceIndex). Style name is still taken from the
+      // doc-wide fallback; direct formatting is not.
+      let refFmt = null;
+      if (refIdx !== -1 && ref.inSection) {
+        const refPara = paragraphs.items[refIdx];
+        loadParagraphFormat(refPara);
+        await context.sync();
+        refFmt = snapshotParagraphFormat(refPara);
+      }
+
+      const toDelete = paragraphs.items.slice(startIdx + 1, endIdx);
+      const deletedCount = toDelete.length;
+      for (const p of toDelete) p.delete();
       await context.sync();
-      refFmt = snapshotParagraphFormat(refPara);
-    }
 
-    const toDelete = paragraphs.items.slice(startIdx + 1, endIdx);
-    const deletedCount = toDelete.length;
-    for (const p of toDelete) p.delete();
-    await context.sync();
+      // Re-fetch. Heading index may have shifted by 0 (we only deleted *after* it)
+      // but be safe and re-locate.
+      const para2 = await getParagraphsWithIds(context);
+      paragraphs = para2.paragraphs;
+      idMode = para2.idMode;
+      snapshot = snapshotParagraphs(paragraphs, idMode);
+      const newHeadingIdx = findHeadingIndex(snapshot, heading);
+      if (newHeadingIdx === -1) throw new Error("Lost the heading after delete; aborting");
 
-    // Re-fetch. Heading index may have shifted by 0 (we only deleted *after* it)
-    // but be safe and re-locate.
-    const para2 = await getParagraphsWithIds(context);
-    paragraphs = para2.paragraphs;
-    idMode = para2.idMode;
-    snapshot = snapshotParagraphs(paragraphs, idMode);
-    const newHeadingIdx = findHeadingIndex(snapshot, heading);
-    if (newHeadingIdx === -1) throw new Error("Lost the heading after delete; aborting");
+      const headingPara = paragraphs.items[newHeadingIdx];
+      let cursor = headingPara;
+      const inserted = [];
+      for (let i = 0; i < content.length; i++) {
+        const p = cursor.insertParagraph(content[i], Word.InsertLocation.after);
+        const explicit = style_per_para && style_per_para[i];
+        if (explicit) p.style = explicit;
+        else if (bodyStyle) p.style = bodyStyle;
+        if (refFmt && !explicit) applyParagraphFormat(p, refFmt);
+        inserted.push(p);
+        cursor = p;
+      }
 
-    const headingPara = paragraphs.items[newHeadingIdx];
-    let cursor = headingPara;
-    const inserted = [];
-    for (let i = 0; i < content.length; i++) {
-      const p = cursor.insertParagraph(content[i], Word.InsertLocation.after);
-      const explicit = style_per_para && style_per_para[i];
-      if (explicit) p.style = explicit;
-      else if (bodyStyle) p.style = bodyStyle;
-      if (refFmt && !explicit) applyParagraphFormat(p, refFmt);
-      inserted.push(p);
-      cursor = p;
-    }
+      if (provenance_comment && inserted.length > 0) {
+        inserted[0].getRange().insertComment(provenance_comment);
+      }
 
-    if (provenance_comment && inserted.length > 0) {
-      inserted[0].getRange().insertComment(provenance_comment);
-    }
-
-    await context.sync();
-
-    let newIds;
-    if (idMode === "uniqueLocalId") {
-      for (const p of inserted) p.load("uniqueLocalId");
       await context.sync();
-      newIds = inserted.map(p => p.uniqueLocalId);
-    } else {
-      newIds = inserted.map((_, k) => fallbackId(newHeadingIdx + 1 + k));
-    }
 
-    return {
-      deleted_paragraphs: deletedCount,
-      inserted_count: inserted.length,
-      new_para_ids: newIds,
-      addressing: idMode,
-    };
+      let newIds;
+      if (idMode === "uniqueLocalId") {
+        for (const p of inserted) p.load("uniqueLocalId");
+        await context.sync();
+        newIds = inserted.map((p) => p.uniqueLocalId);
+      } else {
+        newIds = inserted.map((_, k) => fallbackId(newHeadingIdx + 1 + k));
+      }
+
+      return {
+        deleted_paragraphs: deletedCount,
+        inserted_count: inserted.length,
+        new_para_ids: newIds,
+        addressing: idMode,
+      };
     });
   });
 }
@@ -616,9 +660,9 @@ export async function toolReplaceSection({ heading, content, track_changes, styl
 // Tool: office_highlight
 // ---------------------------------------------------------------------------
 const SEVERITY_COLOR = {
-  error:     "Red",
-  warning:   "Yellow",
-  info:      "Turquoise",
+  error: "Red",
+  warning: "Yellow",
+  info: "Turquoise",
   uncertain: "Pink",
 };
 
@@ -633,7 +677,7 @@ export async function toolHighlight({ targets }) {
     // Phase 1: queue all the searches. Office.js batches operations until
     // sync(), so doing this in one pass is faster than one-sync-per-target.
     const perTarget = [];
-    const pendingSearches = [];   // { idx, target, searchResults }
+    const pendingSearches = []; // { idx, target, searchResults }
     for (let i = 0; i < targets.length; i++) {
       const t = targets[i];
       const idx = findIndexById(paragraphs, t.paragraph_id, idMode);
@@ -659,7 +703,12 @@ export async function toolHighlight({ targets }) {
       try {
         if (p.wholeParagraph) {
           p.paragraph.getRange().font.highlightColor = color;
-          perTarget[p.i] = { paragraph_id: p.t.paragraph_id, ok: true, matches: 1, severity: p.t.severity || "warning" };
+          perTarget[p.i] = {
+            paragraph_id: p.t.paragraph_id,
+            ok: true,
+            matches: 1,
+            severity: p.t.severity || "warning",
+          };
           totalHighlights += 1;
         } else {
           const items = p.searchResults.items;
@@ -788,7 +837,7 @@ export async function toolClearComments(args) {
       throw new Error("Specify one of paragraph_ids, heading_section, or all: true");
     }
 
-    const probes = comments.items.map(c => {
+    const probes = comments.items.map((c) => {
       const paras = c.contentRange.paragraphs;
       paras.load("items/text");
       return { comment: c, paras };
@@ -809,7 +858,7 @@ export async function toolClearComments(args) {
       // re-run. `heading_section` / `all: true` scopes are unaffected —
       // they select by index range, not text.
       const firstText = paras.items[0].text;
-      const idx = snapshot.findIndex(p => p.text === firstText);
+      const idx = snapshot.findIndex((p) => p.text === firstText);
       if (idx !== -1 && allowedIdxs.has(idx)) {
         comment.delete();
         deletedCount += 1;

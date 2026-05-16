@@ -24,23 +24,34 @@ const MATTER_MARKERS = ["CLAUDE.md", ".claude"];
 // indicates the workspace is one level higher. Common convention: doc in a
 // "Drafts" subfolder, with related materials as siblings.
 const SUBFOLDER_HINTS = new Set([
-  "drafts", "draft", "specs", "spec", "specification", "specifications",
-  "documents", "docs", "working", "drafting", "files", "current",
+  "drafts",
+  "draft",
+  "specs",
+  "spec",
+  "specification",
+  "specifications",
+  "documents",
+  "docs",
+  "working",
+  "drafting",
+  "files",
+  "current",
 ]);
 
 // Immediate children of $HOME that are OS-managed, never workspaces.
 // macOS-specific; on Windows there's no equivalent stuck-state, so the set
 // is empty.
 const HOME = homedir();
-const SYSTEM_HOME_CHILDREN = process.platform === "darwin"
-  ? new Set([
-      join(HOME, "Library"),
-      join(HOME, "Movies"),
-      join(HOME, "Music"),
-      join(HOME, "Pictures"),
-      join(HOME, "Public"),
-    ])
-  : new Set();
+const SYSTEM_HOME_CHILDREN =
+  process.platform === "darwin"
+    ? new Set([
+        join(HOME, "Library"),
+        join(HOME, "Movies"),
+        join(HOME, "Music"),
+        join(HOME, "Pictures"),
+        join(HOME, "Public"),
+      ])
+    : new Set();
 
 // Office.js gives us paths in a few shapes depending on platform and where
 // the doc came from:
@@ -55,8 +66,11 @@ const SYSTEM_HOME_CHILDREN = process.platform === "darwin"
 function normalizeDocPath(docPath) {
   if (!docPath) return null;
   if (/^file:\/\//i.test(docPath)) {
-    try { return resolvePath(fileURLToPath(docPath)); }
-    catch { return null; }
+    try {
+      return resolvePath(fileURLToPath(docPath));
+    } catch {
+      return null;
+    }
   }
   if (/^[a-z][a-z0-9+.-]*:/i.test(docPath)) {
     // Some non-file URL (https://…sharepoint…) — no filesystem path to walk.
@@ -94,7 +108,10 @@ export async function resolveWorkspaceRoot(docPath) {
   while (true) {
     if (dir === HOME) return null;
     for (const m of MATTER_MARKERS) {
-      try { await stat(join(dir, m)); return dir; } catch {}
+      try {
+        await stat(join(dir, m));
+        return dir;
+      } catch {}
     }
     try {
       await stat(join(dir, ".git"));
@@ -137,7 +154,10 @@ export async function suggestWorkspaceRoot(docPath) {
 export async function ensureWorkspaceMarker(cwd) {
   if (!cwd) return false;
   for (const m of MATTER_MARKERS) {
-    try { await stat(join(cwd, m)); return false; } catch {}
+    try {
+      await stat(join(cwd, m));
+      return false;
+    } catch {}
   }
   const seed =
     `# ${basename(cwd)}\n\n` +

@@ -1,10 +1,10 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- Defense-in-depth against future XSS via tool/agent output. All
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Defense-in-depth against future XSS via tool/agent output. All
        dynamic content is rendered with .textContent today (correct), but
        this catches regressions. script-src allows our own origin + the
        Office.js CDN; connect-src allows the same-origin /bridge-token
@@ -12,211 +12,263 @@
        build pulls scripts from another Microsoft origin and the panel
        goes blank, widen script-src/connect-src — do NOT remove the
        policy. Needs live verification in Word AND Excel. -->
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self';
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
                  script-src 'self' https://appsforoffice.microsoft.com;
                  style-src 'self' 'unsafe-inline';
                  img-src 'self' data:;
                  connect-src 'self' ws://127.0.0.1:47823;
                  base-uri 'none';
-                 object-src 'none'" />
-  <title>Claude Code for Excel</title>
-  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-  <link rel="stylesheet" href="/shared/styles.css" />
-</head>
-<body data-active-tab="chat" data-host="excel">
-  <header class="topbar">
-    <span class="status" id="connection-status" title="Connection to the Claude Code daemon">Connecting…</span>
-    <button class="matter-chip" id="workspace-chip" title="Click to switch workspaces">
-      <span class="matter-warning" id="workspace-warning" hidden>⚠</span>
-      <span class="matter-folder" id="workspace-folder">(no workspace)</span>
-      <span class="matter-caret">▾</span>
-    </button>
-  </header>
+                 object-src 'none'"
+    />
+    <title>Claude Code for Excel</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <link rel="stylesheet" href="/shared/styles.css" />
+  </head>
+  <body data-active-tab="chat" data-host="excel">
+    <header class="topbar">
+      <span class="status" id="connection-status" title="Connection to the Claude Code daemon"
+        >Connecting…</span
+      >
+      <button class="matter-chip" id="workspace-chip" title="Click to switch workspaces">
+        <span class="matter-warning" id="workspace-warning" hidden>⚠</span>
+        <span class="matter-folder" id="workspace-folder">(no workspace)</span>
+        <span class="matter-caret">▾</span>
+      </button>
+    </header>
 
-  <nav class="tabs">
-    <button class="tab" data-tab="chat" aria-current="page">Chat</button>
-    <button class="tab" data-tab="library">Presets</button>
-    <button class="tab" data-tab="setup">Setup</button>
-  </nav>
+    <nav class="tabs">
+      <button class="tab" data-tab="chat" aria-current="page">Chat</button>
+      <button class="tab" data-tab="library">Presets</button>
+      <button class="tab" data-tab="setup">Setup</button>
+    </nav>
 
-  <!-- Chat tab content -->
-  <section class="tab-content" data-tab="chat">
-    <main id="messages" class="messages"></main>
+    <!-- Chat tab content -->
+    <section class="tab-content" data-tab="chat">
+      <main id="messages" class="messages"></main>
 
-    <div class="selection-chip" id="selection-chip" hidden>
-      <span id="selection-chip-text"></span>
-      <button id="selection-chip-detach" title="Don't use selection as context">×</button>
-    </div>
-
-    <div class="quick-chips" id="quick-chips" hidden></div>
-
-    <div class="agent-status-row">
-      <span class="agent-status idle" id="agent-status">Ready</span>
-      <button type="button" class="btn-stop" id="stop-agent" title="Stop the agent" hidden>Stop</button>
-    </div>
-
-    <form id="composer" class="composer">
-      <textarea id="input" placeholder="Ask Claude…" rows="3" autofocus></textarea>
-      <button type="submit" id="send">Send</button>
-    </form>
-  </section>
-
-  <!-- Library tab content -->
-  <section class="tab-content" data-tab="library" hidden>
-    <div class="library-header">
-      <h3>Presets</h3>
-      <button class="btn-primary btn-small" id="add-preset">+ New preset</button>
-    </div>
-    <div class="library-help">
-      Click a preset to use it. Pinned presets appear as chips above the chat input.
-    </div>
-    <div class="library-list" id="library-list"></div>
-  </section>
-
-  <!-- Setup tab content -->
-  <section class="tab-content" data-tab="setup" hidden>
-    <div class="setup-content">
-
-      <div class="setup-section">
-        <h3>Workspace folder</h3>
-        <p class="setup-help">
-          The folder Claude treats as the current working directory. Click any row
-          to switch. Determines which <code>CLAUDE.md</code>, context files, and prior
-          conversation history apply.
-        </p>
-        <div class="matter-suggest" id="workspace-suggest" hidden>
-          <div class="matter-suggest-body">
-            <div class="matter-suggest-label">Use this as the workspace?</div>
-            <div class="matter-suggest-path" id="workspace-suggest-path">—</div>
-          </div>
-          <div class="matter-suggest-actions">
-            <button type="button" class="btn-primary btn-small" id="workspace-suggest-accept">Yes</button>
-            <button type="button" class="btn-secondary btn-small" id="workspace-suggest-pick">Pick…</button>
-            <button type="button" class="icon-btn matter-suggest-dismiss" id="workspace-suggest-dismiss" title="Dismiss">×</button>
-          </div>
-        </div>
-        <div class="references-list" id="workspaces-list">
-          <div class="references-loading">Loading…</div>
-        </div>
-        <button type="button" class="btn-primary btn-small" id="add-workspace">+ Add workspace</button>
-        <div class="form-error" id="workspace-error" hidden></div>
+      <div class="selection-chip" id="selection-chip" hidden>
+        <span id="selection-chip-text"></span>
+        <button id="selection-chip-detach" title="Don't use selection as context">×</button>
       </div>
 
-      <div class="setup-section">
-        <h3>Context files</h3>
-        <p class="setup-help">
-          Folders or individual files Claude should consider as background for this
-          workspace — notes, prior drafts, reference material, exports. Saved to this
-          workspace's <code>CLAUDE.md</code>.
-        </p>
-        <div class="references-list" id="context-list">
-          <div class="references-loading">Loading…</div>
-        </div>
-        <button type="button" class="btn-primary btn-small add-folder-trigger" data-kind="context">+ Add folder or file</button>
-        <div class="form-error" id="context-error" hidden></div>
+      <div class="quick-chips" id="quick-chips" hidden></div>
+
+      <div class="agent-status-row">
+        <span class="agent-status idle" id="agent-status">Ready</span>
+        <button type="button" class="btn-stop" id="stop-agent" title="Stop the agent" hidden>
+          Stop
+        </button>
       </div>
 
-      <div class="setup-section">
-        <h3>Preferences</h3>
+      <form id="composer" class="composer">
+        <textarea id="input" placeholder="Ask Claude…" rows="3" autofocus></textarea>
+        <button type="submit" id="send">Send</button>
+      </form>
+    </section>
 
-        <div class="setting-row">
-          <div class="setting-text">
-            <div>Track changes mode</div>
-            <select id="setting-track-changes-mode" class="setting-select">
-              <option value="always">Always track (recommended)</option>
-              <option value="modifications">Modifications only (skip fresh-section drafts)</option>
-              <option value="never">Never track (commit changes directly)</option>
-            </select>
-            <small>How Claude should use Word's track-changes feature (Word only). "Always" means every edit is reviewable. "Modifications only" lets multi-paragraph fresh drafts land directly while keeping smaller in-place edits reviewable. "Never" commits everything.</small>
+    <!-- Library tab content -->
+    <section class="tab-content" data-tab="library" hidden>
+      <div class="library-header">
+        <h3>Presets</h3>
+        <button class="btn-primary btn-small" id="add-preset">+ New preset</button>
+      </div>
+      <div class="library-help">
+        Click a preset to use it. Pinned presets appear as chips above the chat input.
+      </div>
+      <div class="library-list" id="library-list"></div>
+    </section>
+
+    <!-- Setup tab content -->
+    <section class="tab-content" data-tab="setup" hidden>
+      <div class="setup-content">
+        <div class="setup-section">
+          <h3>Workspace folder</h3>
+          <p class="setup-help">
+            The folder Claude treats as the current working directory. Click any row to switch.
+            Determines which <code>CLAUDE.md</code>, context files, and prior conversation history
+            apply.
+          </p>
+          <div class="matter-suggest" id="workspace-suggest" hidden>
+            <div class="matter-suggest-body">
+              <div class="matter-suggest-label">Use this as the workspace?</div>
+              <div class="matter-suggest-path" id="workspace-suggest-path">—</div>
+            </div>
+            <div class="matter-suggest-actions">
+              <button type="button" class="btn-primary btn-small" id="workspace-suggest-accept">
+                Yes
+              </button>
+              <button type="button" class="btn-secondary btn-small" id="workspace-suggest-pick">
+                Pick…
+              </button>
+              <button
+                type="button"
+                class="icon-btn matter-suggest-dismiss"
+                id="workspace-suggest-dismiss"
+                title="Dismiss"
+              >
+                ×
+              </button>
+            </div>
           </div>
+          <div class="references-list" id="workspaces-list">
+            <div class="references-loading">Loading…</div>
+          </div>
+          <button type="button" class="btn-primary btn-small" id="add-workspace">
+            + Add workspace
+          </button>
+          <div class="form-error" id="workspace-error" hidden></div>
         </div>
 
-        <label class="setting-row">
-          <input type="checkbox" id="setting-auto-switch-workspace" />
-          <div class="setting-text">
-            <div>Auto-switch workspace to active doc's folder</div>
-            <small>When you open the add-in in a different document, switch the workspace automatically. Off by default; turn on if you keep one doc per folder.</small>
+        <div class="setup-section">
+          <h3>Context files</h3>
+          <p class="setup-help">
+            Folders or individual files Claude should consider as background for this workspace —
+            notes, prior drafts, reference material, exports. Saved to this workspace's
+            <code>CLAUDE.md</code>.
+          </p>
+          <div class="references-list" id="context-list">
+            <div class="references-loading">Loading…</div>
           </div>
-        </label>
-        <label class="setting-row">
-          <input type="checkbox" id="setting-show-diagnostics" />
-          <div class="setting-text">
-            <div>Show diagnostic info in chat</div>
-            <small>Session init, tool calls, and turn-boundary events. Noisy day-to-day; useful when something feels wrong.</small>
-          </div>
-        </label>
-      </div>
-
-      <div class="setup-footnote">
-        Context files are saved to your workspace's <code>CLAUDE.md</code>. Changes
-        take effect immediately — the agent session reloads in the background while
-        preserving your conversation.
-      </div>
-    </div>
-  </section>
-
-  <!-- Add-folder modal (only used by Context files) -->
-  <div class="modal-backdrop" id="add-folder-modal" hidden>
-    <div class="modal">
-      <div class="modal-header">
-        <h3 id="add-folder-modal-title">Add folder or file</h3>
-        <button class="icon-btn" id="add-folder-modal-close" aria-label="Close">×</button>
-      </div>
-      <div class="modal-body">
-        <label>Path</label>
-        <div class="path-row">
-          <input type="text" id="add-folder-path" placeholder="/Users/you/notes" />
-          <button type="button" class="btn-secondary btn-small" id="add-folder-browse">Browse…</button>
+          <button
+            type="button"
+            class="btn-primary btn-small add-folder-trigger"
+            data-kind="context"
+          >
+            + Add folder or file
+          </button>
+          <div class="form-error" id="context-error" hidden></div>
         </div>
-        <label>Description (optional)</label>
-        <input type="text" id="add-folder-description" placeholder="What's in this folder or file" />
-        <div class="form-error" id="add-folder-error" hidden></div>
+
+        <div class="setup-section">
+          <h3>Preferences</h3>
+
+          <div class="setting-row">
+            <div class="setting-text">
+              <div>Track changes mode</div>
+              <select id="setting-track-changes-mode" class="setting-select">
+                <option value="always">Always track (recommended)</option>
+                <option value="modifications">
+                  Modifications only (skip fresh-section drafts)
+                </option>
+                <option value="never">Never track (commit changes directly)</option>
+              </select>
+              <small
+                >How Claude should use Word's track-changes feature (Word only). "Always" means
+                every edit is reviewable. "Modifications only" lets multi-paragraph fresh drafts
+                land directly while keeping smaller in-place edits reviewable. "Never" commits
+                everything.</small
+              >
+            </div>
+          </div>
+
+          <label class="setting-row">
+            <input type="checkbox" id="setting-auto-switch-workspace" />
+            <div class="setting-text">
+              <div>Auto-switch workspace to active doc's folder</div>
+              <small
+                >When you open the add-in in a different document, switch the workspace
+                automatically. Off by default; turn on if you keep one doc per folder.</small
+              >
+            </div>
+          </label>
+          <label class="setting-row">
+            <input type="checkbox" id="setting-show-diagnostics" />
+            <div class="setting-text">
+              <div>Show diagnostic info in chat</div>
+              <small
+                >Session init, tool calls, and turn-boundary events. Noisy day-to-day; useful when
+                something feels wrong.</small
+              >
+            </div>
+          </label>
+        </div>
+
+        <div class="setup-footnote">
+          Context files are saved to your workspace's <code>CLAUDE.md</code>. Changes take effect
+          immediately — the agent session reloads in the background while preserving your
+          conversation.
+        </div>
       </div>
-      <div class="modal-actions">
-        <button type="button" class="btn-secondary" id="add-folder-cancel">Cancel</button>
-        <button type="button" class="btn-primary" id="add-folder-save">Add</button>
+    </section>
+
+    <!-- Add-folder modal (only used by Context files) -->
+    <div class="modal-backdrop" id="add-folder-modal" hidden>
+      <div class="modal">
+        <div class="modal-header">
+          <h3 id="add-folder-modal-title">Add folder or file</h3>
+          <button class="icon-btn" id="add-folder-modal-close" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <label>Path</label>
+          <div class="path-row">
+            <input type="text" id="add-folder-path" placeholder="/Users/you/notes" />
+            <button type="button" class="btn-secondary btn-small" id="add-folder-browse">
+              Browse…
+            </button>
+          </div>
+          <label>Description (optional)</label>
+          <input
+            type="text"
+            id="add-folder-description"
+            placeholder="What's in this folder or file"
+          />
+          <div class="form-error" id="add-folder-error" hidden></div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="add-folder-cancel">Cancel</button>
+          <button type="button" class="btn-primary" id="add-folder-save">Add</button>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- Preset editor modal -->
-  <div class="modal-backdrop" id="preset-modal" hidden>
-    <div class="modal">
-      <div class="modal-header">
-        <h3 id="preset-modal-title">New preset</h3>
-        <button class="icon-btn" id="preset-modal-close" aria-label="Close">×</button>
-      </div>
-      <div class="modal-body">
-        <label>Title</label>
-        <input type="text" id="preset-title" placeholder="e.g. Summarize this document" />
-        <label>Prompt</label>
-        <textarea id="preset-prompt" rows="6" placeholder="What to send to Claude. Can be multi-line."></textarea>
-        <label>Category (optional)</label>
-        <input type="text" id="preset-category" list="preset-categories" placeholder="Summarize, Edit, Research, Review…" />
-        <datalist id="preset-categories">
-          <option value="Summarize"></option>
-          <option value="Edit"></option>
-          <option value="Research"></option>
-          <option value="Review"></option>
-          <option value="Format"></option>
-        </datalist>
-        <label class="checkbox-row">
-          <input type="checkbox" id="preset-auto-send" />
-          <span>Send immediately on click (otherwise fills the input so you can edit)</span>
-        </label>
-        <label class="checkbox-row">
-          <input type="checkbox" id="preset-pinned" />
-          <span>Pin to quick-chips above the chat input</span>
-        </label>
-      </div>
-      <div class="modal-actions">
-        <button type="button" class="btn-secondary" id="preset-cancel">Cancel</button>
-        <button type="button" class="btn-primary" id="preset-save">Save</button>
+    <!-- Preset editor modal -->
+    <div class="modal-backdrop" id="preset-modal" hidden>
+      <div class="modal">
+        <div class="modal-header">
+          <h3 id="preset-modal-title">New preset</h3>
+          <button class="icon-btn" id="preset-modal-close" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <label>Title</label>
+          <input type="text" id="preset-title" placeholder="e.g. Summarize this document" />
+          <label>Prompt</label>
+          <textarea
+            id="preset-prompt"
+            rows="6"
+            placeholder="What to send to Claude. Can be multi-line."
+          ></textarea>
+          <label>Category (optional)</label>
+          <input
+            type="text"
+            id="preset-category"
+            list="preset-categories"
+            placeholder="Summarize, Edit, Research, Review…"
+          />
+          <datalist id="preset-categories">
+            <option value="Summarize"></option>
+            <option value="Edit"></option>
+            <option value="Research"></option>
+            <option value="Review"></option>
+            <option value="Format"></option>
+          </datalist>
+          <label class="checkbox-row">
+            <input type="checkbox" id="preset-auto-send" />
+            <span>Send immediately on click (otherwise fills the input so you can edit)</span>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="preset-pinned" />
+            <span>Pin to quick-chips above the chat input</span>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="preset-cancel">Cancel</button>
+          <button type="button" class="btn-primary" id="preset-save">Save</button>
+        </div>
       </div>
     </div>
-  </div>
 
-  <script type="module" src="/shared/taskpane.js"></script>
-</body>
+    <script type="module" src="/shared/taskpane.js"></script>
+  </body>
 </html>

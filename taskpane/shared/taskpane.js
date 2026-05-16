@@ -51,7 +51,7 @@ let activeDocUrl = null;
 // Host: "word" or "excel". Set from <body data-host="..."> (the Word and
 // Excel taskpanes each load their own index.html which sets this), with a
 // fallback to Office.context.host when Office.onReady fires.
-let HOST = (document.body.dataset.host === "excel") ? "excel" : "word";
+let HOST = document.body.dataset.host === "excel" ? "excel" : "word";
 
 // ---------------------------------------------------------------------------
 // UI helpers
@@ -171,34 +171,34 @@ function showAuthErrorBanner(rawError) {
 // the user hasn't seen named before — most filesystem/Bash/MCP tools.
 const TOOL_STATUS_LABELS = {
   // Word
-  office_get_selection:      "Reading your selection…",
-  office_read_paragraphs:    "Reading the document…",
-  office_insert_paragraphs:  "Inserting paragraphs…",
-  office_replace_text:       "Editing text…",
+  office_get_selection: "Reading your selection…",
+  office_read_paragraphs: "Reading the document…",
+  office_insert_paragraphs: "Inserting paragraphs…",
+  office_replace_text: "Editing text…",
   office_replace_paragraphs: "Replacing paragraphs…",
-  office_replace_section:    "Rewriting section…",
-  office_highlight:          "Highlighting…",
-  office_clear_highlights:   "Clearing highlights…",
-  office_add_comment:        "Adding comment…",
-  office_clear_comments:     "Clearing comments…",
+  office_replace_section: "Rewriting section…",
+  office_highlight: "Highlighting…",
+  office_clear_highlights: "Clearing highlights…",
+  office_add_comment: "Adding comment…",
+  office_clear_comments: "Clearing comments…",
   // Excel
-  excel_get_selected_range:  "Reading your selection…",
-  excel_list_sheets:         "Listing sheets…",
-  excel_read_range:          "Reading cells…",
-  excel_write_range:         "Writing cells…",
-  excel_find_value:          "Searching…",
-  excel_insert_rows:         "Inserting rows…",
-  excel_delete_rows:         "Deleting rows…",
+  excel_get_selected_range: "Reading your selection…",
+  excel_list_sheets: "Listing sheets…",
+  excel_read_range: "Reading cells…",
+  excel_write_range: "Writing cells…",
+  excel_find_value: "Searching…",
+  excel_insert_rows: "Inserting rows…",
+  excel_delete_rows: "Deleting rows…",
   // Common Claude Code tools
-  Read:                      "Reading a file…",
-  Write:                     "Writing a file…",
-  Edit:                      "Editing a file…",
-  MultiEdit:                 "Editing a file…",
-  Bash:                      "Running a command…",
-  Glob:                      "Searching files…",
-  Grep:                      "Searching files…",
-  WebFetch:                  "Fetching from the web…",
-  WebSearch:                 "Searching the web…",
+  Read: "Reading a file…",
+  Write: "Writing a file…",
+  Edit: "Editing a file…",
+  MultiEdit: "Editing a file…",
+  Bash: "Running a command…",
+  Glob: "Searching files…",
+  Grep: "Searching files…",
+  WebFetch: "Fetching from the web…",
+  WebSearch: "Searching the web…",
 };
 // Raw MCP server name → user-facing display name. The in-process bridge
 // server is named "office" in our code, but to the user it's the active
@@ -254,7 +254,8 @@ function appendToolUse(name, args) {
   el.innerHTML = `<div class="tool-name"></div><div class="tool-args"></div>`;
   el.querySelector(".tool-name").textContent = `🔧 ${name}`;
   const argText = typeof args === "string" ? args : JSON.stringify(args, null, 2);
-  el.querySelector(".tool-args").textContent = argText.length > 200 ? argText.slice(0, 197) + "..." : argText;
+  el.querySelector(".tool-args").textContent =
+    argText.length > 200 ? argText.slice(0, 197) + "..." : argText;
   $messages.appendChild(el);
   $messages.scrollTop = $messages.scrollHeight;
   assistantTurnElem = null;
@@ -305,9 +306,8 @@ function renderTranscriptReplay(events, truncated) {
 
 function refreshSelectionChip() {
   if (attachSelection && lastSelection && lastSelection.text) {
-    const preview = lastSelection.text.length > 60
-      ? lastSelection.text.slice(0, 57) + "..."
-      : lastSelection.text;
+    const preview =
+      lastSelection.text.length > 60 ? lastSelection.text.slice(0, 57) + "..." : lastSelection.text;
     $chipText.textContent = `Selection: "${preview}"`;
     $chip.hidden = false;
   } else {
@@ -345,7 +345,11 @@ function loadSettings() {
 }
 
 function saveSettings(s) {
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch { /* ignore */ }
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  } catch {
+    /* ignore */
+  }
 }
 
 let settings = loadSettings();
@@ -412,7 +416,9 @@ function wsConnect() {
     // attempt so the next hello carries the current token. fetchBridgeToken
     // tolerates the HTTP server being briefly unreachable too (sets the
     // token to null, the hello fails, we loop again).
-    setTimeout(() => { fetchBridgeToken().then(wsConnect); }, 1500);
+    setTimeout(() => {
+      fetchBridgeToken().then(wsConnect);
+    }, 1500);
   };
 
   ws.onerror = (err) => {
@@ -421,7 +427,11 @@ function wsConnect() {
 
   ws.onmessage = (evt) => {
     let msg;
-    try { msg = JSON.parse(evt.data); } catch { return; }
+    try {
+      msg = JSON.parse(evt.data);
+    } catch {
+      return;
+    }
     handleServerMessage(msg);
   };
 }
@@ -477,7 +487,9 @@ async function handleServerMessage(msg) {
         appendEvent(`Session ${msg.session_id?.slice(0, 8)}… (${msg.model})`);
       } else if (msg.event === "cwd_changed") {
         setWorkspaceDisplay(msg.cwd);
-        appendEvent(`Switched to workspace: ${msg.cwd.split(/[\\/]/).filter(Boolean).pop()}${msg.resumed ? " (resumed prior session)" : ""}`);
+        appendEvent(
+          `Switched to workspace: ${msg.cwd.split(/[\\/]/).filter(Boolean).pop()}${msg.resumed ? " (resumed prior session)" : ""}`,
+        );
         // Per-workspace context must be re-read for the new workspace.
         contextCache = null;
         if (document.body.dataset.activeTab === "setup") loadContext(true);
@@ -514,7 +526,10 @@ const REQUEST_TIMEOUT_MS = 10_000;
 
 function sendRequest(type, payload = {}) {
   return new Promise((resolve, reject) => {
-    if (!wsReady) { reject(new Error("Not connected to daemon")); return; }
+    if (!wsReady) {
+      reject(new Error("Not connected to daemon"));
+      return;
+    }
     const request_id = uuid();
     pendingRequests.set(request_id, { resolve, reject });
     wsSend({ type, request_id, ...payload });
@@ -552,10 +567,14 @@ async function runOfficeTool(msg) {
     // tool families on every session, so this is the only place we can
     // catch mismatches.
     if (HOST === "excel" && name.startsWith("office_")) {
-      throw new Error(`Tool ${name} is Word-only; the active host is Excel. Use excel_* tools instead.`);
+      throw new Error(
+        `Tool ${name} is Word-only; the active host is Excel. Use excel_* tools instead.`,
+      );
     }
     if (HOST === "word" && name.startsWith("excel_")) {
-      throw new Error(`Tool ${name} is Excel-only; the active host is Word. Use office_* tools instead.`);
+      throw new Error(
+        `Tool ${name} is Excel-only; the active host is Word. Use office_* tools instead.`,
+      );
     }
     let result;
     // Apply the user's track-changes mode to every write-tool call before
@@ -627,7 +646,6 @@ async function runOfficeTool(msg) {
   }
 }
 
-
 // ---------------------------------------------------------------------------
 // Selection tracking — push context_update on changes (debounced).
 // ---------------------------------------------------------------------------
@@ -642,9 +660,10 @@ async function captureSelection() {
         range.load("address, values, rowCount, columnCount");
         await context.sync();
         const cellCount = (range.rowCount || 0) * (range.columnCount || 0);
-        const text = cellCount === 1
-          ? String(range.values?.[0]?.[0] ?? "")
-          : `${range.address} (${range.rowCount}×${range.columnCount})`;
+        const text =
+          cellCount === 1
+            ? String(range.values?.[0]?.[0] ?? "")
+            : `${range.address} (${range.rowCount}×${range.columnCount})`;
         return { text, address: range.address };
       });
     } else {
@@ -748,7 +767,9 @@ Office.onReady((info) => {
 
   try {
     activeDocUrl = Office.context.document.url || null;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   refreshMismatchIndicator();
 
   // Hide host-irrelevant settings.
@@ -762,12 +783,12 @@ Office.onReady((info) => {
     Excel.run(async (context) => {
       context.workbook.onSelectionChanged.add(onSelectionChanged);
       await context.sync();
-    }).catch(err => console.warn("Could not attach Excel selection handler:", err));
+    }).catch((err) => console.warn("Could not attach Excel selection handler:", err));
   } else {
     Word.run(async (context) => {
       context.document.onSelectionChanged.add(onSelectionChanged);
       await context.sync();
-    }).catch(err => console.warn("Could not attach Word selection handler:", err));
+    }).catch((err) => console.warn("Could not attach Word selection handler:", err));
   }
 
   // Capture once on boot.
@@ -790,7 +811,11 @@ Office.onReady((info) => {
 // ---------------------------------------------------------------------------
 const ONBOARDING_KEY = "claude-code-office-onboarding-seen-v1";
 function maybeShowOnboarding() {
-  try { if (localStorage.getItem(ONBOARDING_KEY)) return; } catch { /* ignore */ }
+  try {
+    if (localStorage.getItem(ONBOARDING_KEY)) return;
+  } catch {
+    /* ignore */
+  }
   const hostLabel = HOST === "excel" ? "Excel" : "Word";
   const card = document.createElement("div");
   card.className = "onboarding-card";
@@ -812,7 +837,11 @@ function maybeShowOnboarding() {
   if (messagesEl) messagesEl.insertBefore(card, messagesEl.firstChild);
   else document.body.insertBefore(card, document.body.firstChild);
   card.querySelector(".onboarding-dismiss").addEventListener("click", () => {
-    try { localStorage.setItem(ONBOARDING_KEY, "1"); } catch { /* ignore */ }
+    try {
+      localStorage.setItem(ONBOARDING_KEY, "1");
+    } catch {
+      /* ignore */
+    }
     card.remove();
   });
   card.querySelector("[data-onboarding-jump='setup']").addEventListener("click", (e) => {
@@ -826,10 +855,10 @@ function maybeShowOnboarding() {
 // ===========================================================================
 function setActiveTab(tabName) {
   document.body.dataset.activeTab = tabName;
-  document.querySelectorAll(".tab-content").forEach(el => {
+  document.querySelectorAll(".tab-content").forEach((el) => {
     el.hidden = el.dataset.tab !== tabName;
   });
-  document.querySelectorAll(".tab").forEach(btn => {
+  document.querySelectorAll(".tab").forEach((btn) => {
     btn.setAttribute("aria-current", btn.dataset.tab === tabName ? "page" : "false");
   });
   if (tabName === "setup") {
@@ -838,7 +867,7 @@ function setActiveTab(tabName) {
   }
 }
 
-document.querySelectorAll(".tab").forEach(btn => {
+document.querySelectorAll(".tab").forEach((btn) => {
   btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
 });
 
@@ -852,33 +881,74 @@ function defaultPresets() {
   return [
     // QC
     // Summarize / outline
-    { id: uuid(), title: "Summarize this document", category: "Summarize",
-      prompt: "Read the whole document and give me a tight summary — main argument, key points, anything notable. Don't edit the document.",
-      pinned: true, auto_send: true },
-    { id: uuid(), title: "Outline this document", category: "Summarize",
-      prompt: "Show me the heading outline of this document with paragraph counts per section. Don't edit anything.",
-      pinned: false, auto_send: true },
+    {
+      id: uuid(),
+      title: "Summarize this document",
+      category: "Summarize",
+      prompt:
+        "Read the whole document and give me a tight summary — main argument, key points, anything notable. Don't edit the document.",
+      pinned: true,
+      auto_send: true,
+    },
+    {
+      id: uuid(),
+      title: "Outline this document",
+      category: "Summarize",
+      prompt:
+        "Show me the heading outline of this document with paragraph counts per section. Don't edit anything.",
+      pinned: false,
+      auto_send: true,
+    },
 
     // Edit
-    { id: uuid(), title: "Improve writing in selection", category: "Edit",
-      prompt: "Improve the writing in my current selection — clearer, tighter, no redundancy, preserve meaning. Use track changes.",
-      pinned: true, auto_send: true },
-    { id: uuid(), title: "Fix typos and inconsistencies", category: "Edit",
-      prompt: "Scan the whole document for typos, grammar errors, and inconsistencies (terminology, capitalization, punctuation). Use office_highlight with severity 'warning' for each issue and summarize them in chat.",
-      pinned: false, auto_send: true },
-    { id: uuid(), title: "Simplify the selection", category: "Edit",
-      prompt: "Simplify the selected paragraph for clarity without losing meaning. Use track changes.",
-      pinned: false, auto_send: true },
+    {
+      id: uuid(),
+      title: "Improve writing in selection",
+      category: "Edit",
+      prompt:
+        "Improve the writing in my current selection — clearer, tighter, no redundancy, preserve meaning. Use track changes.",
+      pinned: true,
+      auto_send: true,
+    },
+    {
+      id: uuid(),
+      title: "Fix typos and inconsistencies",
+      category: "Edit",
+      prompt:
+        "Scan the whole document for typos, grammar errors, and inconsistencies (terminology, capitalization, punctuation). Use office_highlight with severity 'warning' for each issue and summarize them in chat.",
+      pinned: false,
+      auto_send: true,
+    },
+    {
+      id: uuid(),
+      title: "Simplify the selection",
+      category: "Edit",
+      prompt:
+        "Simplify the selected paragraph for clarity without losing meaning. Use track changes.",
+      pinned: false,
+      auto_send: true,
+    },
 
     // Review
-    { id: uuid(), title: "Add comments on this section", category: "Review",
-      prompt: "Review the section my selection is in. Add Word comments on each paragraph that has a problem (unclear phrasing, weak argument, missing detail). Don't edit the text itself.",
-      pinned: false, auto_send: true },
+    {
+      id: uuid(),
+      title: "Add comments on this section",
+      category: "Review",
+      prompt:
+        "Review the section my selection is in. Add Word comments on each paragraph that has a problem (unclear phrasing, weak argument, missing detail). Don't edit the text itself.",
+      pinned: false,
+      auto_send: true,
+    },
 
     // Research (uses context files)
-    { id: uuid(), title: "Answer using my context files", category: "Research",
+    {
+      id: uuid(),
+      title: "Answer using my context files",
+      category: "Research",
       prompt: "Use the context files I've added to this workspace to answer: ",
-      pinned: false, auto_send: false },
+      pinned: false,
+      auto_send: false,
+    },
 
     ...defaultEditingPresets(),
   ];
@@ -888,9 +958,15 @@ function defaultPresets() {
 // append them to existing users' lists without duplicating the constants.
 function defaultEditingPresets() {
   return [
-    { id: uuid(), title: "Clear highlighting", category: "Editing",
-      prompt: "Call office_clear_highlights with arguments {\"all\": true} to remove every highlight from the document.",
-      pinned: true, auto_send: true },
+    {
+      id: uuid(),
+      title: "Clear highlighting",
+      category: "Editing",
+      prompt:
+        'Call office_clear_highlights with arguments {"all": true} to remove every highlight from the document.',
+      pinned: true,
+      auto_send: true,
+    },
   ];
 }
 
@@ -905,12 +981,18 @@ function loadPresets() {
   try {
     const raw = localStorage.getItem(PRESETS_KEY);
     if (raw) return JSON.parse(raw);
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return null;
 }
 
 function savePresets() {
-  try { localStorage.setItem(PRESETS_KEY, JSON.stringify(presets)); } catch { /* ignore */ }
+  try {
+    localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+  } catch {
+    /* ignore */
+  }
 }
 
 function initPresets() {
@@ -923,7 +1005,7 @@ function initPresets() {
     // Migration: append the Editing category for users whose presets were
     // seeded before it existed. Skips if they already have one (i.e. they
     // migrated previously, or they added their own Editing preset).
-    if (!presets.some(p => p.category === "Editing")) {
+    if (!presets.some((p) => p.category === "Editing")) {
       presets.push(...defaultEditingPresets());
       savePresets();
     }
@@ -936,7 +1018,7 @@ function initPresets() {
 const $quickChips = document.getElementById("quick-chips");
 
 function renderQuickChips() {
-  const pinned = presets.filter(p => p.pinned);
+  const pinned = presets.filter((p) => p.pinned);
   if (pinned.length === 0) {
     $quickChips.hidden = true;
     $quickChips.innerHTML = "";
@@ -963,7 +1045,7 @@ function renderLibrary() {
   if (presets.length === 0) {
     const empty = document.createElement("div");
     empty.className = "library-empty";
-    empty.textContent = "No presets yet. Click \"+ New preset\" to add one.";
+    empty.textContent = 'No presets yet. Click "+ New preset" to add one.';
     $libraryList.appendChild(empty);
     return;
   }
@@ -1029,7 +1111,10 @@ function renderPresetRow(p) {
   editBtn.type = "button";
   editBtn.title = "Edit";
   editBtn.textContent = "✎";
-  editBtn.addEventListener("click", (e) => { e.stopPropagation(); openPresetModal(p); });
+  editBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openPresetModal(p);
+  });
   actions.appendChild(editBtn);
 
   const delBtn = document.createElement("button");
@@ -1041,7 +1126,7 @@ function renderPresetRow(p) {
     e.stopPropagation();
     // No confirm dialog (Office.js taskpanes block it on some builds); the
     // user can re-add a deleted preset if needed.
-    presets = presets.filter(x => x.id !== p.id);
+    presets = presets.filter((x) => x.id !== p.id);
     savePresets();
     renderLibrary();
     renderQuickChips();
@@ -1125,8 +1210,14 @@ $presetModal.addEventListener("click", (e) => {
 $presetSave.addEventListener("click", () => {
   const title = $presetTitle.value.trim();
   const prompt = $presetPrompt.value;
-  if (!title) { $presetTitle.focus(); return; }
-  if (!prompt.trim()) { $presetPrompt.focus(); return; }
+  if (!title) {
+    $presetTitle.focus();
+    return;
+  }
+  if (!prompt.trim()) {
+    $presetPrompt.focus();
+    return;
+  }
 
   const data = {
     title,
@@ -1137,7 +1228,7 @@ $presetSave.addEventListener("click", () => {
   };
 
   if (editingPresetId) {
-    const idx = presets.findIndex(p => p.id === editingPresetId);
+    const idx = presets.findIndex((p) => p.id === editingPresetId);
     if (idx !== -1) presets[idx] = { ...presets[idx], ...data };
   } else {
     presets.push({ id: uuid(), ...data });
@@ -1166,7 +1257,10 @@ async function removeContextEntryAt(idx) {
 }
 
 async function loadContext(force = false) {
-  if (contextCache && !force) { renderContext(); return; }
+  if (contextCache && !force) {
+    renderContext();
+    return;
+  }
   if (contextLoadingPromise) return contextLoadingPromise;
   contextLoadingPromise = (async () => {
     try {
@@ -1233,12 +1327,18 @@ function renderContext() {
 // so a daemon-supplied path/error string can't inject markup.
 const $contextError = document.getElementById("context-error");
 function showContextError(message) {
-  if (!$contextError) { console.warn("[context]", message); return; }
+  if (!$contextError) {
+    console.warn("[context]", message);
+    return;
+  }
   $contextError.textContent = message;
   $contextError.hidden = false;
 }
 function clearContextError() {
-  if ($contextError) { $contextError.textContent = ""; $contextError.hidden = true; }
+  if ($contextError) {
+    $contextError.textContent = "";
+    $contextError.hidden = true;
+  }
 }
 
 async function saveContext() {
@@ -1247,7 +1347,7 @@ async function saveContext() {
   try {
     const r = await sendRequest("set_context", { entries: contextCache });
     if (r.errors && r.errors.length > 0) {
-      const lines = r.errors.map(e => `${e.path} — ${e.error}`).join("; ");
+      const lines = r.errors.map((e) => `${e.path} — ${e.error}`).join("; ");
       showContextError(`Some entries could not be saved: ${lines}`);
     }
     contextCache = Array.isArray(r.saved) ? r.saved : contextCache;
@@ -1282,7 +1382,7 @@ function closeAddFolderModal() {
   $addFolderModal.hidden = true;
 }
 
-document.querySelectorAll(".add-folder-trigger").forEach(btn => {
+document.querySelectorAll(".add-folder-trigger").forEach((btn) => {
   btn.addEventListener("click", () => openAddFolderModal());
 });
 $addFolderCancel.addEventListener("click", closeAddFolderModal);
@@ -1337,10 +1437,16 @@ $addFolderBrowse.addEventListener("click", async () => {
 });
 
 $addFolderPath.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); $addFolderSave.click(); }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    $addFolderSave.click();
+  }
 });
 $addFolderDescription.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); $addFolderSave.click(); }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    $addFolderSave.click();
+  }
 });
 
 // ===========================================================================
@@ -1376,7 +1482,7 @@ const $workspaceSuggestPath = document.getElementById("workspace-suggest-path");
 const $workspaceSuggestAccept = document.getElementById("workspace-suggest-accept");
 const $workspaceSuggestPick = document.getElementById("workspace-suggest-pick");
 const $workspaceSuggestDismiss = document.getElementById("workspace-suggest-dismiss");
-let pendingWorkspaceSuggestion = null;     // { cwd, confidence } from the daemon
+let pendingWorkspaceSuggestion = null; // { cwd, confidence } from the daemon
 let dismissedWorkspaceSuggestionForDoc = null; // activeDocUrl the user dismissed for
 
 function setWorkspaceDisplay(cwd) {
@@ -1399,11 +1505,13 @@ function refreshMismatchIndicator() {
     // filesystem location to compare, so the chip stays neutral.
     mismatch = !!docDir && !isInOrUnder(docDir, currentWorkspaceCwd);
   }
-  const baseTitle = "The agent reads source files (CLAUDE.md, notes, references) from the workspace folder — click to switch workspaces.";
+  const baseTitle =
+    "The agent reads source files (CLAUDE.md, notes, references) from the workspace folder — click to switch workspaces.";
   if (mismatch) {
     $workspaceChip.classList.add("mismatch");
     $workspaceWarning.hidden = false;
-    $workspaceChip.title = baseTitle + " (⚠ The current workspace doesn't match the doc you're editing.)";
+    $workspaceChip.title =
+      baseTitle + " (⚠ The current workspace doesn't match the doc you're editing.)";
   } else {
     $workspaceChip.classList.remove("mismatch");
     $workspaceWarning.hidden = true;
@@ -1416,7 +1524,9 @@ async function refreshWorkspaceFromDaemon() {
     const r = await sendRequest("get_cwd_state");
     if (r.current_cwd) setWorkspaceDisplay(r.current_cwd);
     await refreshWorkspaceSuggestBanner();
-  } catch { /* ignore on initial boot */ }
+  } catch {
+    /* ignore on initial boot */
+  }
 }
 
 async function loadWorkspaceSection() {
@@ -1471,7 +1581,7 @@ function renderWorkspacesList(recent, currentCwd) {
   // (e.g., daemon was launched at this folder but no one's "switched" to it
   // yet, so it isn't in the recents file).
   let list = Array.isArray(recent) ? [...recent] : [];
-  if (currentCwd && !list.some(f => f.cwd === currentCwd)) {
+  if (currentCwd && !list.some((f) => f.cwd === currentCwd)) {
     list.unshift({
       cwd: currentCwd,
       display_name: currentCwd.split(/[\\/]/).filter(Boolean).pop(),
@@ -1501,9 +1611,9 @@ function renderWorkspacesList(recent, currentCwd) {
       tag.textContent = "Active";
       pathEl.appendChild(tag);
     }
-    pathEl.appendChild(document.createTextNode(
-      f.display_name || f.cwd.split(/[\\/]/).filter(Boolean).pop()
-    ));
+    pathEl.appendChild(
+      document.createTextNode(f.display_name || f.cwd.split(/[\\/]/).filter(Boolean).pop()),
+    );
     const subPath = document.createElement("div");
     subPath.className = "reference-description";
     subPath.style.fontFamily = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
@@ -1539,9 +1649,7 @@ function renderWorkspacesList(recent, currentCwd) {
 async function doSwitch(cwd, { autodetectFromDoc = false } = {}) {
   $workspaceError.hidden = true;
   try {
-    const payload = autodetectFromDoc
-      ? { autodetect_from_doc: activeDocUrl }
-      : { cwd };
+    const payload = autodetectFromDoc ? { autodetect_from_doc: activeDocUrl } : { cwd };
     const r = await sendRequest("set_cwd", payload);
     if (!r.ok) throw new Error(r.error || "switch failed");
     // The daemon emits cwd_changed which updates the chip via assistant_event.
@@ -1572,7 +1680,10 @@ $workspaceSuggestPick.addEventListener("click", async () => {
   pendingWorkspaceSuggestion = null;
   $workspaceSuggest.hidden = true;
   try {
-    const picked = await pickPathNative({ start_path: startPath, title: "Choose a workspace folder" });
+    const picked = await pickPathNative({
+      start_path: startPath,
+      title: "Choose a workspace folder",
+    });
     if (picked) doSwitch(picked.path);
   } catch (e) {
     console.error("[picker]", e);

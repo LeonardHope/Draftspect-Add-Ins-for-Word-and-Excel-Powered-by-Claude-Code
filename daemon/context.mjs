@@ -40,9 +40,7 @@ const POSTAMBLE =
 function lineFor(entry) {
   const k = entry.kind === "file" ? "file" : "folder";
   const desc = (entry.description || "").trim();
-  return desc
-    ? `- (${k}) \`${entry.path}\` — ${desc}`
-    : `- (${k}) \`${entry.path}\``;
+  return desc ? `- (${k}) \`${entry.path}\` — ${desc}` : `- (${k}) \`${entry.path}\``;
 }
 
 function parseBlock(blockBody) {
@@ -60,8 +58,12 @@ function claudeMdPath(cwd) {
 }
 
 async function readClaudeMd(cwd) {
-  try { return await readFile(claudeMdPath(cwd), "utf8"); }
-  catch (e) { if (e.code === "ENOENT") return ""; throw e; }
+  try {
+    return await readFile(claudeMdPath(cwd), "utf8");
+  } catch (e) {
+    if (e.code === "ENOENT") return "";
+    throw e;
+  }
 }
 
 async function validate(entries) {
@@ -75,7 +77,7 @@ async function validate(entries) {
     const p = resolvePath(e.path.trim());
     try {
       const s = await stat(p);
-      const detectedKind = s.isDirectory() ? "folder" : (s.isFile() ? "file" : null);
+      const detectedKind = s.isDirectory() ? "folder" : s.isFile() ? "file" : null;
       if (!detectedKind) {
         errors.push({ path: p, error: "Not a regular file or directory" });
         continue;
@@ -88,7 +90,7 @@ async function validate(entries) {
     } catch (err) {
       errors.push({
         path: p,
-        error: err.code === "ENOENT" ? "Does not exist" : (err.message || "stat failed"),
+        error: err.code === "ENOENT" ? "Does not exist" : err.message || "stat failed",
       });
     }
   }
@@ -127,7 +129,7 @@ export async function setContextEntries(cwd, entries) {
   } else if (content.length === 0) {
     content = `# Workspace context\n\n${newBlock}\n`;
   } else {
-    const sep = content.endsWith("\n\n") ? "" : (content.endsWith("\n") ? "\n" : "\n\n");
+    const sep = content.endsWith("\n\n") ? "" : content.endsWith("\n") ? "\n" : "\n\n";
     content = content + sep + newBlock + "\n";
   }
 

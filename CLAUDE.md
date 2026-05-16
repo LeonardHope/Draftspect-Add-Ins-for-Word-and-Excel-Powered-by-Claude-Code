@@ -3,12 +3,13 @@
 Microsoft Office add-ins (Word + Excel) that wrap a local Claude Code daemon and expose it inside Office via Office.js task panes. Cross-platform (macOS + Windows). Forked from a private patent-drafting-specific build ("Patspect") and stripped to a general audience.
 
 This is **not a product** — it's a public-eventually GitHub repo of integration code. Each user clones it and runs it on their own machine with their own Claude Code. The naming convention reflects that:
+
 - npm package: `claude-code-office-addins`
 - Per-host add-in DisplayName: `Claude Code for Word`, `Claude Code for Excel`
 - Tray app: `Claude Code for Office`
 - Repo title: `Claude Code Add-Ins for Word and Excel`
 
-These are descriptive labels (the integration code IS for Claude Code), not a product brand. The Anthropic branding rule against using "Claude Code" in a *product name* doesn't apply because we're not shipping a product.
+These are descriptive labels (the integration code IS for Claude Code), not a product brand. The Anthropic branding rule against using "Claude Code" in a _product name_ doesn't apply because we're not shipping a product.
 
 ## Architecture (3 paragraphs)
 
