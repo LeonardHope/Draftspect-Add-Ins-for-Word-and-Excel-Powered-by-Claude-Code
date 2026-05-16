@@ -112,33 +112,31 @@ function findHeadingIndex(snapshot, headingText) {
   );
 }
 
-// Infer the body-text style for the section that contains the insert
-// position `fromIdx`. Algorithm:
+// Find the canonical body paragraph for the section that contains the
+// insert position `fromIdx`.
 //
-//   1. Find the section we're in by walking BACKWARD from fromIdx-1 to the
-//      nearest heading paragraph. That heading is the top of the section.
-//   2. From the heading, walk FORWARD looking for the first body paragraph
-//      in this section. Stop at the NEXT heading — that means the section
-//      has no body content above the insert (rare — insert is right after
-//      the heading, into an empty section).
-//   3. Return that paragraph's style. That's the canonical body style for
-//      the section.
+//   1. Walk BACKWARD from fromIdx-1 to the nearest heading — the top of
+//      the section the insert sits in.
+//   2. From that heading, walk FORWARD for the first body paragraph in the
+//      section, stopping at the next heading.
+//   3. If there's no heading above the insert, or the section has no body
+//      paragraph above the next heading, fall back to the first non-heading
+//      paragraph anywhere in the doc.
 //
-// The old implementation walked forward from `fromIdx` first, which leaked
-// the *next* section's body style when the insert was at the end of a
-// section (the inferrer skipped past the next heading instead of stopping
-// at it). Templates that vary the body style between sections made that
-// visibly wrong (no first-line indent, wrong alignment on inserted text).
+// Returns `{ idx, inSection }`:
+//   - `idx`       — index into `snapshot` of the reference paragraph (or -1).
+//   - `inSection` — true when `idx` was found *inside* the insert's own
+//     section (steps 1–2); false when it came from the doc-wide fallback
+//     (step 3).
 //
-// If there's no heading above the insert (pre-heading content / very top
-// of the doc), fall back to the first non-heading paragraph in the doc.
-//
-// Returns the INDEX of the canonical body paragraph (or -1). inferBodyStyle
-// is a thin wrapper that returns that paragraph's style name; callers that
-// also clone the paragraph's *direct* formatting (indent, alignment,
-// spacing — which many templates apply manually on top of a plain style
-// like "Normal", so the style name alone doesn't carry them) use this to
-// grab the live Word.Paragraph.
+// Why `inSection` matters: the style NAME is a safe thing to copy even from
+// the fallback (low blast radius — old behavior). But the reference
+// paragraph's *direct* formatting (indent / alignment / spacing) is only
+// representative if it's from the same section. The doc-wide fallback might
+// be a centered title block or an indented address line, and cloning its
+// direct formatting onto a body insert would be visibly wrong. Callers use
+// `inSection` to gate format-cloning while still always taking the style
+// name.
 function findBodyReferenceIndex(snapshot, fromIdx) {
   // Step 1: find the section's heading by walking backward.
   let sectionStart = -1;
@@ -155,19 +153,21 @@ function findBodyReferenceIndex(snapshot, fromIdx) {
     for (let i = sectionStart + 1; i < snapshot.length; i++) {
       if (!snapshot[i]) continue;
       if (headingLevel(snapshot[i].style) !== null) break;
-      return i;
+      return { idx: i, inSection: true };
     }
   }
 
-  // Fallback: first non-heading paragraph in the doc (pre-heading content).
+  // Step 3: doc-wide fallback — style name only, NOT a format-clone source.
   for (let i = 0; i < snapshot.length; i++) {
-    if (snapshot[i] && headingLevel(snapshot[i].style) === null) return i;
+    if (snapshot[i] && headingLevel(snapshot[i].style) === null) {
+      return { idx: i, inSection: false };
+    }
   }
-  return -1;
+  return { idx: -1, inSection: false };
 }
 
 function inferBodyStyle(snapshot, fromIdx) {
-  const idx = findBodyReferenceIndex(snapshot, fromIdx);
+  const { idx } = findBodyReferenceIndex(snapshot, fromIdx);
   return idx === -1 ? null : (snapshot[idx].style || null);
 }
 
@@ -365,14 +365,19 @@ export async function toolInsertParagraphs({ after, content, track_changes, styl
     // don't inherit a heading's formatting. Start one past the anchor (the
     // first paragraph the new content will sit alongside).
     const useInferred = !(style_per_para && style_per_para.length === content.length);
-    const refIdx = useInferred ? findBodyReferenceIndex(snapshot, anchorIdx + 1) : -1;
+    const ref = useInferred ? findBodyReferenceIndex(snapshot, anchorIdx + 1) : { idx: -1, inSection: false };
+    const refIdx = ref.idx;
     const inferredStyle = (refIdx === -1) ? null : (snapshot[refIdx].style || null);
 
-    // Load the reference body paragraph's *direct* formatting (indent,
-    // alignment, spacing). Templates often apply these manually, so
-    // copying the style name alone leaves inserts mis-formatted.
+    // Clone the reference body paragraph's *direct* formatting (indent,
+    // alignment, spacing) — templates apply these manually, so the style
+    // name alone isn't enough. ONLY when the reference is from the
+    // insert's own section: the doc-wide fallback could be a title block
+    // or address line, and cloning its direct formatting onto a body
+    // insert would be visibly wrong. The style name is still taken from
+    // the fallback (low blast radius); only format-cloning is gated.
     let refFmt = null;
-    if (refIdx !== -1) {
+    if (refIdx !== -1 && ref.inSection) {
       const refPara = paragraphs.items[refIdx];
       loadParagraphFormat(refPara);
       await context.sync();
@@ -539,12 +544,16 @@ export async function toolReplaceSection({ heading, content, track_changes, styl
     // BEFORE deleting, so inserted paragraphs match. Without this, new
     // paragraphs inherit the heading's style (centered/bold/large) and
     // lose any manually-applied indent/justify/spacing.
-    const refIdx = (style_per_para && style_per_para.length === content.length)
-      ? -1
+    const ref = (style_per_para && style_per_para.length === content.length)
+      ? { idx: -1, inSection: false }
       : findBodyReferenceIndex(snapshot, startIdx + 1);
+    const refIdx = ref.idx;
     const bodyStyle = (refIdx === -1) ? null : (snapshot[refIdx].style || null);
+    // Format-clone only when the reference is from this section (see
+    // findBodyReferenceIndex). Style name is still taken from the
+    // doc-wide fallback; direct formatting is not.
     let refFmt = null;
-    if (refIdx !== -1) {
+    if (refIdx !== -1 && ref.inSection) {
       const refPara = paragraphs.items[refIdx];
       loadParagraphFormat(refPara);
       await context.sync();
