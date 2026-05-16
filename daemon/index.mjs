@@ -720,11 +720,17 @@ async function startSessionForFolder(
   // host's loop is never involved — no cross-host abort, no interrupt.
   // Clear only this host's queue so the other host's queued message is
   // untouched.
+  // Only when actually superseding a live same-host session: abort it and
+  // drain its queue. On a FRESH start there is no prior session and the
+  // first user message has already been enqueued for this host (it's what
+  // triggered the lazy start) — clearing here would drop it, leaving
+  // userMessageStream awaiting forever and the SDK with no first input
+  // (no init, taskpane stuck on "Working…").
   const prior = sessionFor(host);
   if (prior) {
     prior.abortController.abort();
+    bridge.clearUserMessages(host);
   }
-  bridge.clearUserMessages(host);
 
   const abortController = new AbortController();
   const session = {
