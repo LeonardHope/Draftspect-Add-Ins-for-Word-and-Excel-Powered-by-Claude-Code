@@ -631,6 +631,9 @@ async function runOfficeTool(msg) {
         break;
       case "excel_select_range":
         result = await toolExcelSelectRange(args);
+        // Remember the address the agent selected so its echoed
+        // onSelectionChanged is skipped no matter when it arrives.
+        if (result?.address) agentSelectedAddress = result.address;
         break;
       default:
         throw new Error(`Unknown tool: ${name}`);
@@ -677,6 +680,13 @@ function resumeSelectionCaptureSoon() {
   }, 400);
 }
 
+// The exact range the agent just selected via excel_select_range. The
+// onSelectionChanged it triggers can land AFTER the suspend window
+// (Office event latency on macOS is unpredictable), so we also skip any
+// capture whose address matches this — deterministically, no timing.
+// Cleared the moment a genuinely different selection is observed.
+let agentSelectedAddress = null;
+
 async function captureSelection() {
   if (selectionCaptureSuspended) return;
   try {
@@ -700,6 +710,16 @@ async function captureSelection() {
         await context.sync();
         return { text: sel.text, para_id: null, para_count: null };
       });
+    }
+    if (HOST === "excel" && r.address && agentSelectedAddress) {
+      const norm = (a) => String(a).replace(/\s+/g, "").toUpperCase();
+      if (norm(r.address) === norm(agentSelectedAddress)) {
+        // This is the agent's own selection echoing back — not the user
+        // choosing context. Keep skipping it (Office may fire repeatedly)
+        // until a different range is actually selected.
+        return;
+      }
+      agentSelectedAddress = null; // a real, different user selection
     }
     lastSelection = r;
     refreshSelectionChip();
