@@ -115,9 +115,52 @@ function endTurn() {
   setComposerDisabled(false);
 }
 
+// The connection status doubles as the live-model indicator. Horizontal
+// space in the topbar is tight (the workspace chip takes the rest), so when
+// connected we show ONLY the short model name and let the colored dot carry
+// connection state; the full SDK model id goes in the tooltip. The model
+// shown is the trustworthy `session_init` value from the daemon — never the
+// agent's own (unreliable) self-report.
+let connState = "idle";
+let connLabel = "Connecting…";
+let liveModel = null; // SDK-reported model id of the running loop
+let pendingModelShort = null; // target short name while a switch restarts
+
+function shortModelName(idOrAlias) {
+  const s = String(idOrAlias || "");
+  if (/opus/i.test(s)) return "Opus";
+  if (/sonnet/i.test(s)) return "Sonnet";
+  if (/haiku/i.test(s)) return "Haiku";
+  if (s === "default") return "Default";
+  return s.replace(/^claude-/, "").split(/[-[]/)[0] || s;
+}
+
+function renderConnection() {
+  let text = connLabel;
+  let title = "Connection to the Draftspect daemon";
+  if (connState === "ok") {
+    if (pendingModelShort) {
+      text = `↻ ${pendingModelShort}`;
+      title = `Switching model → ${pendingModelShort}…`;
+    } else if (liveModel) {
+      text = shortModelName(liveModel);
+      title = `Connected · ${liveModel}`;
+    } else {
+      // Connected but no turn has run yet — show what the next message
+      // will use (the sticky dropdown choice) rather than a bare "Connected".
+      text = shortModelName(settings?.model || "sonnet");
+      title = `Connected · ${text} on next message`;
+    }
+  }
+  $connectionStatus.className = `status ${connState}`;
+  $connectionStatus.textContent = text;
+  $connectionStatus.title = title;
+}
+
 function setConnectionStatus(state, label) {
-  $connectionStatus.className = `status ${state}`;
-  $connectionStatus.textContent = label;
+  connState = state;
+  connLabel = label;
+  renderConnection();
 }
 
 function setAgentStatus(state, label) {
@@ -418,6 +461,11 @@ document.getElementById("composer-model")?.addEventListener("change", (e) => {
   saveSettings(settings);
   applySettings();
   sendModel();
+  // If a loop is already live (a turn has run), the daemon will restart it
+  // to apply the new model — show that until the next session_init confirms.
+  // If nothing has run yet, renderConnection already shows the new choice.
+  if (liveModel) pendingModelShort = shortModelName(settings.model);
+  renderConnection();
 });
 
 applySettings();
@@ -537,6 +585,10 @@ async function handleServerMessage(msg) {
         endTurn();
       } else if (msg.event === "session_init") {
         appendEvent(`Session ${msg.session_id?.slice(0, 8)}… (${msg.model})`);
+        // Authoritative: this is the model the SDK actually started with.
+        liveModel = msg.model || liveModel;
+        pendingModelShort = null;
+        renderConnection();
       } else if (msg.event === "cwd_changed") {
         setWorkspaceDisplay(msg.cwd);
         appendEvent(
