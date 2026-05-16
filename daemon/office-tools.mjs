@@ -450,6 +450,182 @@ export function createOfficeBridgeMcp(bridge, host = null, paneKey = null) {
     },
   );
 
+  // ---- Tier 1 editing tools ----
+  const wrap = (name) => async (args) => {
+    try {
+      return asMcpResult(await call(name, args ?? {}));
+    } catch (e) {
+      return asMcpError(e);
+    }
+  };
+
+  const office_apply_style = tool(
+    "office_apply_style",
+    "Apply a paragraph style (e.g. 'Heading 1', 'Title', 'Normal', 'Quote') to EXISTING paragraphs in place, without rewriting their text. Use this to restyle content that's already there; office_insert_paragraphs / office_replace_paragraphs are for styled NEW content.",
+    {
+      ids: z.array(z.string()).describe("Paragraph IDs to restyle."),
+      style: z.string().describe("The style name to apply, e.g. 'Heading 2'."),
+      track_changes: z.boolean().optional(),
+    },
+    wrap("office_apply_style"),
+  );
+
+  const office_set_font = tool(
+    "office_set_font",
+    "Set character formatting (bold/italic/underline, size, color, font name) on whole existing paragraphs, addressed by ID.",
+    {
+      ids: z.array(z.string()).describe("Paragraph IDs to format."),
+      bold: z.boolean().optional(),
+      italic: z.boolean().optional(),
+      underline: z.boolean().optional().describe("true = single underline, false = none."),
+      size: z.number().optional().describe("Font size in points."),
+      color: z.string().optional().describe("Hex color like '#C00000'."),
+      name: z.string().optional().describe("Font family name, e.g. 'Calibri'."),
+      track_changes: z.boolean().optional(),
+    },
+    wrap("office_set_font"),
+  );
+
+  const office_set_paragraph_formatting = tool(
+    "office_set_paragraph_formatting",
+    "Set paragraph-level formatting (alignment, left indent, spacing before/after, line spacing) on existing paragraphs.",
+    {
+      ids: z.array(z.string()).describe("Paragraph IDs to format."),
+      alignment: z.enum(["left", "center", "right", "justify"]).optional(),
+      left_indent: z.number().optional().describe("Left indent in points."),
+      space_before: z.number().optional().describe("Space before in points."),
+      space_after: z.number().optional().describe("Space after in points."),
+      line_spacing: z.number().optional().describe("Line spacing in points."),
+      track_changes: z.boolean().optional(),
+    },
+    wrap("office_set_paragraph_formatting"),
+  );
+
+  const office_insert_table = tool(
+    "office_insert_table",
+    "Insert a table. By default it's appended at the end of the document; pass after_paragraph_id to place it right after a specific paragraph. `rows` is a 2D array of cell strings (all rows same length).",
+    {
+      rows: z.array(z.array(z.string())).describe("2D array of cell text; row 0 sets the width."),
+      after_paragraph_id: z.string().optional().describe("Insert after this paragraph."),
+      header: z.boolean().optional().describe("Treat the first row as a header row."),
+      track_changes: z.boolean().optional(),
+    },
+    wrap("office_insert_table"),
+  );
+
+  const office_set_table_cell = tool(
+    "office_set_table_cell",
+    "Overwrite one cell of an existing table. Tables are 0-indexed in document order; row and column are 0-based.",
+    {
+      table_index: z.number().int().describe("0-based table index in document order."),
+      row: z.number().int(),
+      column: z.number().int(),
+      text: z.string(),
+      track_changes: z.boolean().optional(),
+    },
+    wrap("office_set_table_cell"),
+  );
+
+  const office_get_document_text = tool(
+    "office_get_document_text",
+    "Return the entire document body as plain text plus character/word counts. Use for whole-document analysis; use office_read_paragraphs for targeted, ID-addressable reads.",
+    {},
+    wrap("office_get_document_text"),
+  );
+
+  const office_get_outline = tool(
+    "office_get_outline",
+    "Return the document's heading tree: a list of { id, level, text } for every heading-styled paragraph. Cheap way to orient before reading or editing.",
+    {},
+    wrap("office_get_outline"),
+  );
+
+  const excel_write_formula = tool(
+    "excel_write_formula",
+    "Write formulas into a range (excel_write_range only writes literal values). `formulas` is a 2D array of formula strings like '=SUM(A1:A9)', shaped to match `address`.",
+    {
+      address: z.string().describe("A1 range, e.g. 'D2:D10'."),
+      formulas: z.array(z.array(z.string())).describe("2D array of formula strings."),
+      sheet: z.string().optional(),
+    },
+    wrap("excel_write_formula"),
+  );
+
+  const excel_set_format = tool(
+    "excel_set_format",
+    "Set number format and/or font/fill/border styling on a range.",
+    {
+      address: z.string().describe("A1 range to format."),
+      sheet: z.string().optional(),
+      number_format: z.string().optional().describe("e.g. '0.00', '$#,##0', 'yyyy-mm-dd', '0%'."),
+      bold: z.boolean().optional(),
+      italic: z.boolean().optional(),
+      font_size: z.number().optional(),
+      font_name: z.string().optional(),
+      font_color: z.string().optional().describe("Hex color like '#1F4E79'."),
+      fill_color: z.string().optional().describe("Cell fill hex color."),
+      border: z.boolean().optional().describe("true = thin continuous borders on all edges."),
+    },
+    wrap("excel_set_format"),
+  );
+
+  const excel_insert_columns = tool(
+    "excel_insert_columns",
+    "Insert blank columns, shifting existing columns right.",
+    {
+      sheet: z.string().optional(),
+      at: z.string().describe("Column letter to insert at, e.g. 'C'."),
+      count: z.number().int().optional().describe("How many columns (default 1)."),
+    },
+    wrap("excel_insert_columns"),
+  );
+
+  const excel_delete_columns = tool(
+    "excel_delete_columns",
+    "Delete columns, shifting remaining columns left.",
+    {
+      sheet: z.string().optional(),
+      at: z.string().describe("First column letter to delete, e.g. 'C'."),
+      count: z.number().int().optional().describe("How many columns (default 1)."),
+    },
+    wrap("excel_delete_columns"),
+  );
+
+  const excel_add_sheet = tool(
+    "excel_add_sheet",
+    "Add a new worksheet. Optionally set its 0-based tab position.",
+    {
+      name: z.string().describe("Name for the new sheet."),
+      position: z.number().int().optional(),
+    },
+    wrap("excel_add_sheet"),
+  );
+
+  const excel_delete_sheet = tool(
+    "excel_delete_sheet",
+    "Delete a worksheet by name.",
+    { name: z.string() },
+    wrap("excel_delete_sheet"),
+  );
+
+  const excel_rename_sheet = tool(
+    "excel_rename_sheet",
+    "Rename a worksheet.",
+    { name: z.string().describe("Current sheet name."), new_name: z.string() },
+    wrap("excel_rename_sheet"),
+  );
+
+  const excel_clear_range = tool(
+    "excel_clear_range",
+    "Clear a range's contents, formats, or both.",
+    {
+      address: z.string().describe("A1 range to clear."),
+      sheet: z.string().optional(),
+      what: z.enum(["contents", "formats", "all"]).optional().describe("Default 'contents'."),
+    },
+    wrap("excel_clear_range"),
+  );
+
   const wordTools = [
     office_get_selection,
     office_read_paragraphs,
@@ -461,6 +637,13 @@ export function createOfficeBridgeMcp(bridge, host = null, paneKey = null) {
     office_clear_highlights,
     office_add_comment,
     office_clear_comments,
+    office_apply_style,
+    office_set_font,
+    office_set_paragraph_formatting,
+    office_insert_table,
+    office_set_table_cell,
+    office_get_document_text,
+    office_get_outline,
   ];
   const excelTools = [
     excel_get_selected_range,
@@ -471,6 +654,14 @@ export function createOfficeBridgeMcp(bridge, host = null, paneKey = null) {
     excel_insert_rows,
     excel_delete_rows,
     excel_select_range,
+    excel_write_formula,
+    excel_set_format,
+    excel_insert_columns,
+    excel_delete_columns,
+    excel_add_sheet,
+    excel_delete_sheet,
+    excel_rename_sheet,
+    excel_clear_range,
   ];
   const tools =
     host === "word" ? wordTools : host === "excel" ? excelTools : [...wordTools, ...excelTools];

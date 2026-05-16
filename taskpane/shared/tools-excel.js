@@ -254,3 +254,181 @@ export async function toolExcelSelectRange({ address, sheet = null }) {
     return { sheet: activeName, address: range.address, selected: true };
   });
 }
+
+// ---------------------------------------------------------------------------
+// Tier 1 editing tools — formulas / formatting / columns / sheets / clear
+// ---------------------------------------------------------------------------
+
+// Tool: excel_write_formula — like write_range but sets formulas (write_range
+// is values-only). Each cell gets an A1/R1C1 formula string, e.g. "=SUM(A1:A9)".
+export async function toolExcelWriteFormula({ address, formulas, sheet = null }) {
+  if (!Array.isArray(formulas) || !formulas.length || !Array.isArray(formulas[0])) {
+    throw new Error("`formulas` must be a non-empty 2D array.");
+  }
+  const cols = formulas[0].length;
+  for (let i = 1; i < formulas.length; i++) {
+    if (!Array.isArray(formulas[i]) || formulas[i].length !== cols) {
+      throw new Error(
+        `Ragged formulas: row ${i} has ${formulas[i]?.length} but row 0 has ${cols}.`,
+      );
+    }
+  }
+  return await Excel.run(async (context) => {
+    const activeName = sheet || (await _activeSheetName(context));
+    const { sheetName, a1 } = _splitSheetAddress(address, activeName);
+    if (!a1) throw new Error("`address` is required for write_formula.");
+    const ws = context.workbook.worksheets.getItem(sheetName);
+    const range = ws.getRange(a1);
+    range.load("rowCount, columnCount, address");
+    await context.sync();
+    if (range.rowCount !== formulas.length || range.columnCount !== cols) {
+      throw new Error(
+        `Shape mismatch: range ${range.address} is ${range.rowCount}×${range.columnCount} ` +
+          `but formulas is ${formulas.length}×${cols}.`,
+      );
+    }
+    range.formulas = formulas;
+    await context.sync();
+    return { sheet: sheetName, address: range.address, written: formulas.length * cols };
+  });
+}
+
+// Tool: excel_set_format — number format / font / fill / borders on a range.
+export async function toolExcelSetFormat({
+  address,
+  sheet = null,
+  number_format,
+  bold,
+  italic,
+  font_size,
+  font_name,
+  font_color,
+  fill_color,
+  border,
+}) {
+  if (!address || typeof address !== "string") {
+    throw new Error("`address` (an A1 range) is required.");
+  }
+  return await Excel.run(async (context) => {
+    const activeName = sheet || (await _activeSheetName(context));
+    const { sheetName, a1 } = _splitSheetAddress(address, activeName);
+    const ws = context.workbook.worksheets.getItem(sheetName);
+    const range = ws.getRange(a1);
+    range.load("rowCount, columnCount, address");
+    await context.sync();
+    if (number_format !== undefined) {
+      // numberFormat expects a 2D array matching the range shape.
+      range.numberFormat = Array.from({ length: range.rowCount }, () =>
+        Array.from({ length: range.columnCount }, () => number_format),
+      );
+    }
+    if (bold !== undefined) range.format.font.bold = bold;
+    if (italic !== undefined) range.format.font.italic = italic;
+    if (font_size !== undefined) range.format.font.size = font_size;
+    if (font_name !== undefined) range.format.font.name = font_name;
+    if (font_color !== undefined) range.format.font.color = font_color;
+    if (fill_color !== undefined) range.format.fill.color = fill_color;
+    if (border) {
+      for (const edge of [
+        "EdgeTop",
+        "EdgeBottom",
+        "EdgeLeft",
+        "EdgeRight",
+        "InsideHorizontal",
+        "InsideVertical",
+      ]) {
+        const b = range.format.borders.getItem(edge);
+        b.style = "Continuous";
+        b.weight = "Thin";
+      }
+    }
+    await context.sync();
+    return { sheet: sheetName, address: range.address, formatted: true };
+  });
+}
+
+// Column-letter range helper, e.g. ("C", 2) → "C:D".
+function _colSpan(at, count) {
+  const start = String(at)
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "");
+  if (!start) throw new Error("`at` must be a column letter, e.g. 'C'.");
+  let n = 0;
+  for (const ch of start) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return `${start}:${_colNumberToLetters(n + count - 1)}`;
+}
+
+// Tool: excel_insert_columns — insert blank columns, shifting right.
+export async function toolExcelInsertColumns({ sheet = null, at, count = 1 }) {
+  if (!Number.isInteger(count) || count < 1) throw new Error("`count` must be a positive integer.");
+  return await Excel.run(async (context) => {
+    const activeName = sheet || (await _activeSheetName(context));
+    const ws = context.workbook.worksheets.getItem(activeName);
+    ws.getRange(_colSpan(at, count)).insert(Excel.InsertShiftDirection.right);
+    await context.sync();
+    return { sheet: activeName, inserted_at: String(at).toUpperCase(), count };
+  });
+}
+
+// Tool: excel_delete_columns — delete columns, shifting left.
+export async function toolExcelDeleteColumns({ sheet = null, at, count = 1 }) {
+  if (!Number.isInteger(count) || count < 1) throw new Error("`count` must be a positive integer.");
+  return await Excel.run(async (context) => {
+    const activeName = sheet || (await _activeSheetName(context));
+    const ws = context.workbook.worksheets.getItem(activeName);
+    ws.getRange(_colSpan(at, count)).delete(Excel.DeleteShiftDirection.left);
+    await context.sync();
+    return { sheet: activeName, deleted_at: String(at).toUpperCase(), count };
+  });
+}
+
+// Tool: excel_add_sheet — add a worksheet (optionally at a 0-based position).
+export async function toolExcelAddSheet({ name, position = null }) {
+  if (!name || typeof name !== "string") throw new Error("`name` is required.");
+  return await Excel.run(async (context) => {
+    const ws = context.workbook.worksheets.add(name);
+    if (Number.isInteger(position)) ws.position = position;
+    ws.load("name, position");
+    await context.sync();
+    return { name: ws.name, position: ws.position, added: true };
+  });
+}
+
+// Tool: excel_delete_sheet — delete a worksheet by name.
+export async function toolExcelDeleteSheet({ name }) {
+  if (!name || typeof name !== "string") throw new Error("`name` is required.");
+  return await Excel.run(async (context) => {
+    const ws = context.workbook.worksheets.getItem(name);
+    ws.delete();
+    await context.sync();
+    return { name, deleted: true };
+  });
+}
+
+// Tool: excel_rename_sheet — rename a worksheet.
+export async function toolExcelRenameSheet({ name, new_name }) {
+  if (!name || !new_name) throw new Error("`name` and `new_name` are required.");
+  return await Excel.run(async (context) => {
+    const ws = context.workbook.worksheets.getItem(name);
+    ws.name = new_name;
+    await context.sync();
+    return { from: name, to: new_name, renamed: true };
+  });
+}
+
+// Tool: excel_clear_range — clear contents, formats, or both.
+export async function toolExcelClearRange({ address, sheet = null, what = "contents" }) {
+  if (!address || typeof address !== "string") throw new Error("`address` is required.");
+  const APPLY = { contents: "Contents", formats: "Formats", all: "All" };
+  if (!APPLY[what]) throw new Error(`\`what\` must be one of: ${Object.keys(APPLY).join(", ")}`);
+  return await Excel.run(async (context) => {
+    const activeName = sheet || (await _activeSheetName(context));
+    const { sheetName, a1 } = _splitSheetAddress(address, activeName);
+    const ws = context.workbook.worksheets.getItem(sheetName);
+    const range = ws.getRange(a1);
+    range.clear(Excel.ClearApplyTo[what]);
+    range.load("address");
+    await context.sync();
+    return { sheet: sheetName, address: range.address, cleared: what };
+  });
+}
