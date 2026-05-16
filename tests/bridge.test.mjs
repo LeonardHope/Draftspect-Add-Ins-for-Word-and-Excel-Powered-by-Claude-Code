@@ -1,6 +1,6 @@
 // Unit test for daemon/bridge.mjs network binding.
 //
-// Regression guard for the security fix (Patspect #29 port): the `ws`
+// Regression guard for the WS loopback-bind security fix: the `ws`
 // library binds 0.0.0.0 when constructed with only `port`, exposing the
 // agent bridge to the local network. createBridge must pass
 // host: "127.0.0.1" so the bridge is loopback-only.

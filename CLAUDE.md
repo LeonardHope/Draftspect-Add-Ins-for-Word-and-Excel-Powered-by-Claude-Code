@@ -1,8 +1,8 @@
 # Claude Code Add-Ins for Word and Excel — project guidance for Claude Code
 
-Microsoft Office add-ins (Word + Excel) that wrap a local Claude Code daemon and expose it inside Office via Office.js task panes. Cross-platform (macOS + Windows). Forked from a private patent-drafting-specific build ("Patspect") and stripped to a general audience.
+Microsoft Office add-ins (Word + Excel) that wrap a local Claude Code daemon and expose it inside Office via Office.js task panes. Cross-platform (macOS + Windows).
 
-This is **not a product** — it's a public-eventually GitHub repo of integration code. Each user clones it and runs it on their own machine with their own Claude Code. The naming convention reflects that:
+This is **not a product** — it's a public GitHub repo of integration code. Each user clones it and runs it on their own machine with their own Claude Code. The naming convention reflects that:
 
 - npm package: `claude-code-office-addins`
 - Per-host add-in DisplayName: `Claude Code for Word`, `Claude Code for Excel`
@@ -24,7 +24,7 @@ The **taskpane** (`taskpane/`) is what shows up inside Word/Excel. One shared `t
 - **Auth.** Each user clones the repo and runs it on their own machine with their own Claude Code OAuth (or `ANTHROPIC_API_KEY`). That use is sanctioned. Distributing a packaged/hosted product that uses subscription OAuth on behalf of other users is **not** allowed without Anthropic partner approval — see `feedback_subscription_auth_only` and `reference_anthropic_april_2026_policy`. If this ever ships as a real product, switch to BYO API key.
 - **Branding.** This is a public repo of integration code, not a product. Naming is descriptive ("Claude Code for Word", etc.) — that's allowed because we're not packaging a third-party product on top of Claude Code. If this ever DID become a packaged product, the "Claude Code" naming would need to be replaced. See `feedback_product_branding_compliance`.
 - **Filesystem-write safety.** A `canUseTool` guard refuses `Write`/`Edit`/`MultiEdit` against `.docx`/`.docm`/`.xlsx`/`.xlsm` paths — the active doc is held by Office with unsaved changes, and a filesystem write would corrupt it. The agent must use `office_*` / `excel_*` tools instead.
-- **Feature branches, not main.** Per the user's standing preference, every feature goes on a branch and lands via PR — no direct commits to main. (Once this repo is on GitHub.)
+- **Feature branches, not main.** Per the user's standing preference, every feature goes on a branch and lands via PR — no direct commits to main.
 - **MCP forwarding.** The daemon must forward `~/.claude.json`'s `mcpServers` into the SDK session. The SDK doesn't read that file. If a server is unreachable at daemon startup, the SDK silently drops it for the session's lifetime — restart to retry. See `feedback_sdk_silently_drops_failed_mcp`.
 
 ## Useful commands
@@ -49,8 +49,4 @@ node --check daemon/index.mjs taskpane/shared/taskpane.js app/main.mjs
 ## Where to read more
 
 - `README.md` — user-facing install/usage/troubleshooting docs.
-- Memories under `~/.claude/projects/-Users-leonard-Projects-Claude-Code-Add-Ins-for-Word-and-Excel/memory/` — non-obvious constraints, Office.js gotchas, SDK behavior notes carried over from the Patspect work.
-
-## Related private repo
-
-Patspect lives at `/Users/leonard/Projects/Claude Code Plugin for Word`. It's the patent-drafting-specific original. Do not assume Patspect changes flow back here automatically — this is a fork, not a shared package. If a fix applies to both, it needs to be applied in both places.
+- Memories under `~/.claude/projects/-Users-leonard-Projects-Claude-Code-Add-Ins-for-Word-and-Excel/memory/` — non-obvious constraints, Office.js gotchas, SDK behavior notes.

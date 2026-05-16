@@ -1,15 +1,11 @@
 # Contributing
 
-This is a personal-use, run-it-yourself tool, not a distributed product. It
-runs against **subscription auth** (your local Claude Code's keychain
-credential), which Anthropic's Agent SDK terms restrict to personal use
-absent a partner agreement — so it isn't packaged or published for general
-installation. Contributions are welcome in that spirit: improvements you'd
-run yourself.
-
-It's a generalized fork of a private patent-drafting Word add-in
-("Patspect"). Fixes flow across by hand, tracked in a local port file — see
-"Shared with the upstream fork" below.
+This is a single-user tool you run on your own machine, not a distributed
+product. It runs against **subscription auth** (your local Claude Code's
+keychain credential), which Anthropic's Agent SDK terms restrict to
+personal use absent a partner agreement — so it isn't packaged or
+published for general installation. Contributions are welcome in that
+spirit: improvements you'd run yourself.
 
 ## Setup
 
@@ -33,8 +29,9 @@ there.
 ## Workflow
 
 - Branch per change off `main`; merge via PR. No direct-to-`main` commits.
-- CI (`node --check` + `npm test` on Node 20/22 + `npm audit`) must be
-  green before merge.
+- CI (`node --check` + `npm test` on Node 20/22, `npm audit`, and
+  `prettier --check`) must be green before merge. Run `npm run format`
+  before committing.
 - Keep the diff scoped to the change. No drive-by refactors, no
   speculative abstractions, no backwards-compat shims for code that hasn't
   shipped to anyone.
@@ -43,26 +40,16 @@ there.
 
 ## Before opening a PR
 
-- `npm test` passes, and `node --check` is clean on changed `.mjs`/`.js`
-  (CI runs both, but check locally first).
+- `npm test` passes, `node --check` is clean on changed `.mjs`/`.js`, and
+  `npm run format:check` passes (CI runs all three, but check locally
+  first).
 - Manually exercise the affected path in Word **and** Excel where
   relevant — a clean parse and green tests verify code correctness, not
   feature correctness. If you couldn't test it in a host, say so
   explicitly in the PR.
-- If the change touches code shared with the upstream Patspect fork, note
-  it so the port tracker stays current.
 
 ## Architecture
 
 See the [Developing](README.md#developing) section of the README for the
 file layout (tray shell / daemon / bridge / host-aware taskpane) and the
 test setup.
-
-## Shared with the upstream fork
-
-This repo was generalized from Patspect; the two are not a shared package.
-When a Patspect change touches code that also lives here (taskpane editing
-tools, daemon WS handlers, system-prompt rules, Office.js gotchas, MCP
-plumbing), it's ported here by hand and recorded in a local-only
-`PORT_TO_OFFICE_ADDINS.md` (gitignored). Patent-specific upstream changes
-do not port.

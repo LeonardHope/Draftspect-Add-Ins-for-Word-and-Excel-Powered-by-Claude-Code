@@ -1,6 +1,6 @@
 // Unit tests for daemon/transcript.mjs — the SDK-session .jsonl → chat
-// bubble reconstruction (Patspect #28 port). Pure transform + a tmpdir
-// round-trip; no SDK, no Office.
+// bubble reconstruction. Pure transform + a tmpdir round-trip; no SDK,
+// no Office.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

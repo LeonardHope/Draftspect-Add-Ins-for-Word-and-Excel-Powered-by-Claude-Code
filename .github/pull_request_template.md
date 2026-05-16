@@ -13,4 +13,3 @@
 ## Notes
 
 - [ ] Scoped diff — no unrelated refactors
-- [ ] Port tracker updated if shared with the upstream Patspect fork
