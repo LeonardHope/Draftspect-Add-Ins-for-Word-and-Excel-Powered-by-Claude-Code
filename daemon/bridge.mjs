@@ -1,7 +1,12 @@
 import { WebSocketServer } from "ws";
 import { randomUUID } from "node:crypto";
 
-const TOOL_TIMEOUT_MS = 30_000;
+// 60s, not 30s. Some Office.js ops legitimately run long on big docs —
+// office_clear_highlights / a wide office_replace_section over a large
+// document, batched office_highlight, a whole-sheet excel_read_range.
+// 30s was tripping on real-sized documents. (Per-tool timeouts would be
+// finer-grained but aren't worth the complexity yet.)
+const TOOL_TIMEOUT_MS = 60_000;
 
 export function createBridge({ port, extraHandlers = {}, token, allowedOrigins = [] }) {
   if (!token) throw new Error("createBridge requires a token");
