@@ -11,6 +11,13 @@ import {
   toolClearHighlights,
   toolAddComment,
   toolClearComments,
+  toolApplyStyle,
+  toolSetFont,
+  toolSetParagraphFormatting,
+  toolInsertTable,
+  toolSetTableCell,
+  toolGetDocumentText,
+  toolGetOutline,
 } from "./tools-word.js";
 import {
   toolExcelGetSelectedRange,
@@ -21,6 +28,14 @@ import {
   toolExcelInsertRows,
   toolExcelDeleteRows,
   toolExcelSelectRange,
+  toolExcelWriteFormula,
+  toolExcelSetFormat,
+  toolExcelInsertColumns,
+  toolExcelDeleteColumns,
+  toolExcelAddSheet,
+  toolExcelDeleteSheet,
+  toolExcelRenameSheet,
+  toolExcelClearRange,
 } from "./tools-excel.js";
 import { isInOrUnder, docDirFromActiveUrl } from "./paths.js";
 
@@ -173,6 +188,13 @@ const TOOL_STATUS_LABELS = {
   office_clear_highlights: "Clearing highlights…",
   office_add_comment: "Adding comment…",
   office_clear_comments: "Clearing comments…",
+  office_apply_style: "Applying style…",
+  office_set_font: "Formatting text…",
+  office_set_paragraph_formatting: "Formatting paragraphs…",
+  office_insert_table: "Inserting a table…",
+  office_set_table_cell: "Editing a table cell…",
+  office_get_document_text: "Reading the document…",
+  office_get_outline: "Reading the outline…",
   // Excel
   excel_get_selected_range: "Reading your selection…",
   excel_list_sheets: "Listing sheets…",
@@ -182,6 +204,14 @@ const TOOL_STATUS_LABELS = {
   excel_insert_rows: "Inserting rows…",
   excel_delete_rows: "Deleting rows…",
   excel_select_range: "Selecting cells…",
+  excel_write_formula: "Writing formulas…",
+  excel_set_format: "Formatting cells…",
+  excel_insert_columns: "Inserting columns…",
+  excel_delete_columns: "Deleting columns…",
+  excel_add_sheet: "Adding a sheet…",
+  excel_delete_sheet: "Deleting a sheet…",
+  excel_rename_sheet: "Renaming a sheet…",
+  excel_clear_range: "Clearing cells…",
   // Common Claude Code tools
   Read: "Reading a file…",
   Write: "Writing a file…",
@@ -614,6 +644,27 @@ async function runOfficeTool(msg) {
       case "office_clear_comments":
         result = await toolClearComments(args);
         break;
+      case "office_apply_style":
+        result = await toolApplyStyle(writeArgs());
+        break;
+      case "office_set_font":
+        result = await toolSetFont(writeArgs());
+        break;
+      case "office_set_paragraph_formatting":
+        result = await toolSetParagraphFormatting(writeArgs());
+        break;
+      case "office_insert_table":
+        result = await toolInsertTable(writeArgs());
+        break;
+      case "office_set_table_cell":
+        result = await toolSetTableCell(writeArgs());
+        break;
+      case "office_get_document_text":
+        result = await toolGetDocumentText();
+        break;
+      case "office_get_outline":
+        result = await toolGetOutline();
+        break;
       // ---- Excel ----
       case "excel_get_selected_range":
         result = await toolExcelGetSelectedRange();
@@ -638,6 +689,30 @@ async function runOfficeTool(msg) {
         break;
       case "excel_select_range":
         result = await toolExcelSelectRange(args);
+        break;
+      case "excel_write_formula":
+        result = await toolExcelWriteFormula(args);
+        break;
+      case "excel_set_format":
+        result = await toolExcelSetFormat(args);
+        break;
+      case "excel_insert_columns":
+        result = await toolExcelInsertColumns(args);
+        break;
+      case "excel_delete_columns":
+        result = await toolExcelDeleteColumns(args);
+        break;
+      case "excel_add_sheet":
+        result = await toolExcelAddSheet(args);
+        break;
+      case "excel_delete_sheet":
+        result = await toolExcelDeleteSheet(args);
+        break;
+      case "excel_rename_sheet":
+        result = await toolExcelRenameSheet(args);
+        break;
+      case "excel_clear_range":
+        result = await toolExcelClearRange(args);
         break;
       default:
         throw new Error(`Unknown tool: ${name}`);

@@ -903,3 +903,187 @@ export async function toolAddComment({ paragraph_id, query, text }) {
     return { paragraph_id, anchored_on: query || "whole_paragraph", comment_added: true };
   });
 }
+
+// ---------------------------------------------------------------------------
+// Tier 1 editing tools — formatting / structure / whole-doc read
+// ---------------------------------------------------------------------------
+
+// Resolve a list of paragraph IDs to live Paragraph objects (shared by the
+// formatting tools below). Throws on the first unknown ID.
+function resolveTargets(paragraphs, idMode, ids) {
+  return ids.map((id) => {
+    const idx = findIndexById(paragraphs, id, idMode);
+    if (idx === -1) throw new Error(`Paragraph not found: ${id}`);
+    return { id, paragraph: paragraphs.items[idx] };
+  });
+}
+
+// Tool: office_apply_style — restyle existing paragraphs in place (without
+// rewriting their text, unlike insert/replace which take a style alongside
+// new content).
+export async function toolApplyStyle({ ids, style, track_changes }) {
+  if (!Array.isArray(ids) || ids.length === 0) throw new Error("ids must be non-empty");
+  if (typeof style !== "string" || !style.trim())
+    throw new Error("style must be a non-empty string");
+  return await Word.run(async (context) => {
+    return await withTrackChanges(context, track_changes, async () => {
+      const { paragraphs, idMode } = await getParagraphsWithIds(context);
+      const targets = resolveTargets(paragraphs, idMode, ids);
+      for (const t of targets) t.paragraph.style = style;
+      await context.sync();
+      return { styled_count: targets.length, paragraph_ids: targets.map((t) => t.id), style };
+    });
+  });
+}
+
+// Tool: office_set_font — character formatting on whole paragraphs.
+const UNDERLINE = (v) =>
+  v === true ? "Single" : v === false ? "None" : typeof v === "string" ? v : undefined;
+export async function toolSetFont({
+  ids,
+  bold,
+  italic,
+  underline,
+  size,
+  color,
+  name,
+  track_changes,
+}) {
+  if (!Array.isArray(ids) || ids.length === 0) throw new Error("ids must be non-empty");
+  return await Word.run(async (context) => {
+    return await withTrackChanges(context, track_changes, async () => {
+      const { paragraphs, idMode } = await getParagraphsWithIds(context);
+      const targets = resolveTargets(paragraphs, idMode, ids);
+      for (const t of targets) {
+        const f = t.paragraph.getRange().font;
+        if (bold !== undefined) f.bold = bold;
+        if (italic !== undefined) f.italic = italic;
+        if (underline !== undefined) f.underline = UNDERLINE(underline);
+        if (size !== undefined) f.size = size;
+        if (color !== undefined) f.color = color;
+        if (name !== undefined) f.name = name;
+      }
+      await context.sync();
+      return { formatted_count: targets.length, paragraph_ids: targets.map((t) => t.id) };
+    });
+  });
+}
+
+// Tool: office_set_paragraph_formatting — alignment / indent / spacing.
+const ALIGNMENT = { left: "Left", center: "Centered", right: "Right", justify: "Justified" };
+export async function toolSetParagraphFormatting({
+  ids,
+  alignment,
+  left_indent,
+  space_before,
+  space_after,
+  line_spacing,
+  track_changes,
+}) {
+  if (!Array.isArray(ids) || ids.length === 0) throw new Error("ids must be non-empty");
+  if (alignment !== undefined && !ALIGNMENT[alignment]) {
+    throw new Error(`alignment must be one of: ${Object.keys(ALIGNMENT).join(", ")}`);
+  }
+  return await Word.run(async (context) => {
+    return await withTrackChanges(context, track_changes, async () => {
+      const { paragraphs, idMode } = await getParagraphsWithIds(context);
+      const targets = resolveTargets(paragraphs, idMode, ids);
+      for (const t of targets) {
+        const p = t.paragraph;
+        if (alignment !== undefined) p.alignment = ALIGNMENT[alignment];
+        if (left_indent !== undefined) p.leftIndent = left_indent;
+        if (space_before !== undefined) p.spaceBefore = space_before;
+        if (space_after !== undefined) p.spaceAfter = space_after;
+        if (line_spacing !== undefined) p.lineSpacing = line_spacing;
+      }
+      await context.sync();
+      return { formatted_count: targets.length, paragraph_ids: targets.map((t) => t.id) };
+    });
+  });
+}
+
+// Tool: office_insert_table — insert a table, optionally after a given
+// paragraph (default: appended at the end of the document body).
+export async function toolInsertTable({ rows, after_paragraph_id, header, track_changes }) {
+  if (!Array.isArray(rows) || rows.length === 0 || !Array.isArray(rows[0])) {
+    throw new Error("`rows` must be a non-empty 2D array of cell strings.");
+  }
+  const cols = rows[0].length;
+  for (let i = 1; i < rows.length; i++) {
+    if (!Array.isArray(rows[i]) || rows[i].length !== cols) {
+      throw new Error(`Ragged rows: row ${i} has ${rows[i]?.length} cells but row 0 has ${cols}.`);
+    }
+  }
+  return await Word.run(async (context) => {
+    return await withTrackChanges(context, track_changes, async () => {
+      let table;
+      if (after_paragraph_id) {
+        const { paragraphs, idMode } = await getParagraphsWithIds(context);
+        const idx = findIndexById(paragraphs, after_paragraph_id, idMode);
+        if (idx === -1) throw new Error(`Paragraph not found: ${after_paragraph_id}`);
+        const anchor = paragraphs.items[idx].getRange(Word.RangeLocation.after);
+        table = anchor.insertTable(rows.length, cols, Word.InsertLocation.after, rows);
+      } else {
+        table = context.document.body.insertTable(rows.length, cols, Word.InsertLocation.end, rows);
+      }
+      if (header) table.headerRowCount = 1;
+      await context.sync();
+      return { rows: rows.length, columns: cols, header: !!header };
+    });
+  });
+}
+
+// Tool: office_set_table_cell — overwrite one cell in an existing table.
+// Tables are addressed by 0-based document order (body.tables).
+export async function toolSetTableCell({ table_index, row, column, text, track_changes }) {
+  if (!Number.isInteger(table_index) || table_index < 0)
+    throw new Error("`table_index` must be a non-negative integer.");
+  if (!Number.isInteger(row) || row < 0) throw new Error("`row` must be a non-negative integer.");
+  if (!Number.isInteger(column) || column < 0)
+    throw new Error("`column` must be a non-negative integer.");
+  return await Word.run(async (context) => {
+    return await withTrackChanges(context, track_changes, async () => {
+      const tables = context.document.body.tables;
+      tables.load("items");
+      await context.sync();
+      if (table_index >= tables.items.length) {
+        throw new Error(`Table ${table_index} not found (document has ${tables.items.length}).`);
+      }
+      const cell = tables.items[table_index].getCell(row, column);
+      cell.body.clear();
+      cell.body.insertText(text ?? "", Word.InsertLocation.start);
+      await context.sync();
+      return { table_index, row, column, set: true };
+    });
+  });
+}
+
+// Tool: office_get_document_text — the full body text in one call (the
+// paragraph-range read tools are for targeted reads; this is the whole doc).
+export async function toolGetDocumentText() {
+  return await Word.run(async (context) => {
+    const body = context.document.body;
+    body.load("text");
+    await context.sync();
+    const text = body.text || "";
+    const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+    return { text, character_count: text.length, word_count: words };
+  });
+}
+
+// Tool: office_get_outline — the heading tree (id, level, text) for
+// orientation without dumping the whole document.
+export async function toolGetOutline() {
+  return await Word.run(async (context) => {
+    const { paragraphs, idMode } = await getParagraphsWithIds(context);
+    const outline = [];
+    for (let i = 0; i < paragraphs.items.length; i++) {
+      const p = paragraphs.items[i];
+      const level = headingLevel(p.style);
+      if (level > 0) {
+        outline.push({ id: getId(p, i, idMode), level, text: p.text.trim() });
+      }
+    }
+    return { heading_count: outline.length, outline };
+  });
+}
