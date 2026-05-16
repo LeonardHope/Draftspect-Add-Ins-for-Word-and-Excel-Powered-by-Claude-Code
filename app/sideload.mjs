@@ -8,11 +8,17 @@
 //   ~/Library/Containers/com.microsoft.Excel/Data/Documents/wef/excel.xml
 //
 // Windows: copy manifests to a folder under %APPDATA%, then register
-// that folder as a Trusted Catalog in the Office Trust Center via the
-// registry. Office scans trusted-catalog folders for manifests.
+// each manifest under the WEF\Developer registry key. Office scans that
+// key on launch and sideloads each listed manifest directly — no admin,
+// no network share. (A Trusted Catalog would require the folder to be a
+// real SMB share with a UNC Url; Office silently ignores catalogs whose
+// Url is a local path, which is why the catalog approach never showed
+// the add-in. The Developer key is what the official Office dev tooling
+// uses for local sideloading.)
 //
 //   %APPDATA%\Claude Code for Office\manifests\{word,excel}.xml
-//   HKCU\Software\Microsoft\Office\16.0\WEF\TrustedCatalogs\<our-guid>
+//   HKCU\Software\Microsoft\Office\16.0\WEF\Developer
+//     <full manifest path> = <full manifest path>  (REG_SZ)
 //
 // All operations are idempotent: re-running install is safe, uninstall
 // silently ignores already-removed pieces.
@@ -80,11 +86,18 @@ function macIsInstalled() {
 // ---------------------------------------------------------------------------
 // Windows
 // ---------------------------------------------------------------------------
-// Catalog id is arbitrary — it's the registry key name under TrustedCatalogs.
-// Using a stable string (not a fresh UUID per install) so a second install
-// updates the entry in place rather than piling up duplicates.
-const WIN_CATALOG_ID = "claude-code-office-trusted-catalog";
-const WIN_CATALOG_KEY = `HKCU\\Software\\Microsoft\\Office\\16.0\\WEF\\TrustedCatalogs\\${WIN_CATALOG_ID}`;
+// Office scans this key on launch and sideloads each listed manifest
+// directly — the mechanism the official Office dev tooling uses. No
+// admin, no SMB share. The value NAME is the manifest's full path (what
+// Office reads); we set the data to the same path for legibility.
+const WIN_DEVELOPER_KEY = "HKCU\\Software\\Microsoft\\Office\\16.0\\WEF\\Developer";
+
+// Legacy: earlier builds (incorrectly) registered a Trusted Catalog with
+// a LOCAL-path Url. Office silently ignores such catalogs — a catalog Url
+// must be a UNC share — which is why the add-in never appeared. We delete
+// this on install + uninstall so upgrading users don't keep a dead entry.
+const WIN_LEGACY_CATALOG_KEY =
+  "HKCU\\Software\\Microsoft\\Office\\16.0\\WEF\\TrustedCatalogs\\claude-code-office-trusted-catalog";
 
 function winCatalogDir() {
   return join(homedir(), "AppData", "Roaming", "Claude Code for Office", "manifests");
@@ -108,15 +121,15 @@ function regCommand(args) {
 async function regAddString(key, name, value) {
   return regCommand(["add", key, "/v", name, "/t", "REG_SZ", "/d", value, "/f"]);
 }
-async function regAddDword(key, name, value) {
-  return regCommand(["add", key, "/v", name, "/t", "REG_DWORD", "/d", String(value), "/f"]);
-}
-async function regDelete(key) {
+async function regDeleteKey(key) {
   return regCommand(["delete", key, "/f"]);
 }
-function regQuery(key) {
+async function regDeleteValue(key, name) {
+  return regCommand(["delete", key, "/v", name, "/f"]);
+}
+function regQueryValue(key, name) {
   return new Promise((resolve) => {
-    const p = spawn("reg.exe", ["query", key], { windowsHide: true });
+    const p = spawn("reg.exe", ["query", key, "/v", name], { windowsHide: true });
     p.on("exit", (code) => resolve(code === 0));
     p.on("error", () => resolve(false));
   });
@@ -129,42 +142,54 @@ async function winInstall() {
   for (const host of HOSTS) {
     const dst = join(catalogDir, host.file);
     await copyFile(join(MANIFESTS_DIR, host.file), dst);
+    // Register the manifest under WEF\Developer (value name = path).
+    await regAddString(WIN_DEVELOPER_KEY, dst, dst);
     copied.push({ host: host.host, path: dst });
   }
-  await regAddString(WIN_CATALOG_KEY, "Id", WIN_CATALOG_ID);
-  await regAddString(WIN_CATALOG_KEY, "Url", catalogDir);
-  await regAddString(WIN_CATALOG_KEY, "FriendlyName", "Claude Code for Office");
-  // Flags=1 means "Show in menu" — equivalent to the checkbox in the Trust
-  // Center UI; without this the catalog is registered but invisible.
-  await regAddDword(WIN_CATALOG_KEY, "Flags", 1);
-  return { installed: copied, catalog: catalogDir, registry: WIN_CATALOG_KEY };
+  // Drop the dead legacy local-path catalog if a prior build left one.
+  try {
+    await regDeleteKey(WIN_LEGACY_CATALOG_KEY);
+  } catch {
+    /* not present — fine */
+  }
+  return { installed: copied, catalog: catalogDir, registry: WIN_DEVELOPER_KEY };
 }
 
 async function winUninstall() {
   const removed = [];
-  // Remove registered catalog
+  const catalogDir = winCatalogDir();
+  for (const host of HOSTS) {
+    const dst = join(catalogDir, host.file);
+    try {
+      await regDeleteValue(WIN_DEVELOPER_KEY, dst);
+    } catch {
+      /* value not present */
+    }
+    try {
+      await unlink(dst);
+      removed.push(dst);
+    } catch {
+      /* file gone — fine */
+    }
+  }
+  // Also clear the legacy catalog key if present.
   try {
-    await regDelete(WIN_CATALOG_KEY);
+    await regDeleteKey(WIN_LEGACY_CATALOG_KEY);
   } catch {
     /* not present */
   }
-  // Best-effort clean up the manifest files
-  try {
-    const dir = winCatalogDir();
-    for (const f of await readdir(dir)) {
-      try {
-        await unlink(join(dir, f));
-        removed.push(join(dir, f));
-      } catch {}
-    }
-  } catch {
-    /* dir missing — fine */
-  }
-  return { removed, registry: WIN_CATALOG_KEY };
+  return { removed, registry: WIN_DEVELOPER_KEY };
 }
 
 async function winIsInstalled() {
-  return await regQuery(WIN_CATALOG_KEY);
+  const catalogDir = winCatalogDir();
+  // Installed iff every host's manifest is registered under the key.
+  for (const host of HOSTS) {
+    if (!(await regQueryValue(WIN_DEVELOPER_KEY, join(catalogDir, host.file)))) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
