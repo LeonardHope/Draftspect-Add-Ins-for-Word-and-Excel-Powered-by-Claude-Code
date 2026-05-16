@@ -53,13 +53,16 @@ test("setContextEntries + getContextEntries round-trip", async () => {
     assert.equal(saved.length, 2);
     assert.equal(saved[0].kind, "folder");
     assert.equal(saved[1].kind, "file");
+    // Inside the workspace → stored workspace-relative (not absolute).
+    assert.equal(saved[0].path, "notes");
+    assert.equal(saved[1].path, "ref.md");
 
     const round = await getContextEntries(ws);
     assert.equal(round.length, 2);
-    assert.equal(round[0].path, folderPath);
+    assert.equal(round[0].path, "notes");
     assert.equal(round[0].kind, "folder");
     assert.equal(round[0].description, "Project notes");
-    assert.equal(round[1].path, filePath);
+    assert.equal(round[1].path, "ref.md");
     assert.equal(round[1].kind, "file");
   } finally {
     await rm(ws, { recursive: true, force: true });
@@ -78,9 +81,9 @@ test("setContextEntries reports missing-path errors instead of saving them", asy
       { path: missing },
     ]);
     assert.equal(saved.length, 1);
-    assert.equal(saved[0].path, realFolder);
+    assert.equal(saved[0].path, "real"); // in-workspace → relative
     assert.equal(errors.length, 1);
-    assert.equal(errors[0].path, missing);
+    assert.equal(errors[0].path, missing); // errors keep the absolute path
     assert.match(errors[0].error, /Does not exist/);
   } finally {
     await rm(ws, { recursive: true, force: true });
@@ -100,7 +103,7 @@ test("setContextEntries replaces an existing block in place (no duplication)", a
 
     const got = await getContextEntries(ws);
     assert.equal(got.length, 1);
-    assert.equal(got[0].path, f2);
+    assert.equal(got[0].path, "two");
 
     const md = await readFile(join(ws, "CLAUDE.md"), "utf8");
     const beginCount = (md.match(/CONTEXT-FILES:BEGIN/g) || []).length;
@@ -124,6 +127,36 @@ test("setContextEntries on empty CLAUDE.md preserves no prior content but wraps 
     assert.match(md, /\(folder\) `[^`]+` — data files/);
   } finally {
     await rm(ws, { recursive: true, force: true });
+  }
+});
+
+test("entries outside the workspace stay absolute; in-workspace round-trips relative and is idempotent", async () => {
+  const ws = await makeTmpWs();
+  const outside = await mkdtemp(join(tmpdir(), "cc-office-ctx-outside-"));
+  try {
+    const inFile = join(ws, "guide.md");
+    await writeFile(inFile, "# guide\n");
+    const outFile = join(outside, "vendor-spec.md");
+    await writeFile(outFile, "# spec\n");
+
+    const { saved } = await setContextEntries(ws, [
+      { path: inFile, description: "house style" },
+      { path: outFile, description: "vendor spec" },
+    ]);
+    assert.equal(saved[0].path, "guide.md", "inside workspace → relative");
+    assert.equal(saved[1].path, outFile, "outside workspace → absolute");
+
+    // Re-applying what getContextEntries returns must produce a byte-for-
+    // byte identical CLAUDE.md (no machine-specific drift) — this is what
+    // keeps the committed demo workspaces from getting dirtied.
+    const md1 = await readFile(join(ws, "CLAUDE.md"), "utf8");
+    const round = await getContextEntries(ws);
+    await setContextEntries(ws, round);
+    const md2 = await readFile(join(ws, "CLAUDE.md"), "utf8");
+    assert.equal(md2, md1, "re-writing the round-tripped entries is idempotent");
+  } finally {
+    await rm(ws, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
   }
 });
 

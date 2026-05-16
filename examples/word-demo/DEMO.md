@@ -12,7 +12,9 @@ live document. Run the prompts in order in the task pane.
 2. Open the Claude Code task pane.
 3. Workspace: it's this folder (`examples/word-demo/`) — detected from the
    doc's location, no prompt.
-4. Setup tab → Context files → add `style-guide.md`.
+4. Setup tab → Context files. `style-guide.md` is already listed (it's in
+   this folder's `CLAUDE.md`); you can re-add it via **+ Add file** to
+   see the flow — it's a harmless no-op.
 5. Leave Track Changes **on** (the default).
 
 For reference, `starter.docx` contains:

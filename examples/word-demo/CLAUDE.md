@@ -21,3 +21,13 @@ Working rules:
 - After editing, read the affected paragraphs back and say what you changed.
 
 Keep replies short; this is a demonstration, not a memo.
+
+<!-- CONTEXT-FILES:BEGIN -->
+
+The following folders and files are background context the user has added for this workspace. Read them on demand — when the user's request involves a topic, term, or document name that one of these entries looks relevant to, use `Read` / `Glob` / `Grep` to consult them before answering.
+
+- (file) `style-guide.md`
+
+Each entry below is annotated with its kind (folder or file). Folder entries should be globbed when relevant. File entries are individual documents to read directly. Do not modify any of these files unless the user explicitly asks you to.
+
+<!-- CONTEXT-FILES:END -->

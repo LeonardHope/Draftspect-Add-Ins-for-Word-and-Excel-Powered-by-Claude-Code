@@ -8,7 +8,21 @@
 // workspaces switches which CLAUDE.md is loaded.
 
 import { readFile, writeFile, stat } from "node:fs/promises";
-import { join, resolve as resolvePath } from "node:path";
+import { join, resolve as resolvePath, relative, isAbsolute } from "node:path";
+
+// Store a context entry path workspace-RELATIVE when it lives inside the
+// workspace; absolute only when it's genuinely elsewhere. This keeps the
+// CONTEXT-FILES block machine-independent (a shared/committed CLAUDE.md —
+// e.g. the demo workspaces — no longer carries "/Users/you/…" absolute
+// paths, so running the demo is idempotent and never dirties the repo).
+// Relative paths resolve fine: the agent's cwd IS the workspace, and
+// validate() below resolves them back for stat. POSIX "/" separators so
+// the form is identical on macOS and Windows.
+function toStoredPath(absPath, cwd) {
+  const rel = relative(cwd, absPath);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) return absPath;
+  return rel.split(/[\\/]/).join("/");
+}
 
 const BEGIN = "<!-- CONTEXT-FILES:BEGIN -->";
 const END = "<!-- CONTEXT-FILES:END -->";
@@ -66,7 +80,7 @@ async function readClaudeMd(cwd) {
   }
 }
 
-async function validate(entries) {
+async function validate(entries, cwd) {
   const validated = [];
   const errors = [];
   for (const e of entries || []) {
@@ -74,22 +88,25 @@ async function validate(entries) {
       errors.push({ path: e?.path ?? "", error: "Path is required" });
       continue;
     }
-    const p = resolvePath(e.path.trim());
+    const raw = e.path.trim();
+    // A stored/round-tripped relative path resolves against the
+    // workspace; an absolute path is taken as-is.
+    const abs = isAbsolute(raw) ? resolvePath(raw) : resolvePath(cwd, raw);
     try {
-      const s = await stat(p);
+      const s = await stat(abs);
       const detectedKind = s.isDirectory() ? "folder" : s.isFile() ? "file" : null;
       if (!detectedKind) {
-        errors.push({ path: p, error: "Not a regular file or directory" });
+        errors.push({ path: abs, error: "Not a regular file or directory" });
         continue;
       }
       validated.push({
         kind: detectedKind,
-        path: p,
+        path: toStoredPath(abs, cwd),
         description: (e.description || "").trim(),
       });
     } catch (err) {
       errors.push({
-        path: p,
+        path: abs,
         error: err.code === "ENOENT" ? "Does not exist" : err.message || "stat failed",
       });
     }
@@ -110,7 +127,7 @@ export async function setContextEntries(cwd, entries) {
   if (!cwd) throw new Error("setContextEntries requires cwd");
   await stat(cwd); // confirm folder exists
 
-  const { validated, errors } = await validate(entries);
+  const { validated, errors } = await validate(entries, cwd);
 
   const lines = [BEGIN, "", PREAMBLE, ""];
   if (validated.length === 0) {
