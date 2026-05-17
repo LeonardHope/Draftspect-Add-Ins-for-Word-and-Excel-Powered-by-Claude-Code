@@ -57,7 +57,7 @@ import { isInOrUnder, docDirFromActiveUrl } from "./paths.js";
 
 // Daemon endpoints. The HTTP server that loaded this taskpane is on
 // HTTP_PORT; the WebSocket bridge is on WS_PORT (one less by daemon convention).
-const WS_URL = "ws://127.0.0.1:47823";
+const WS_URL = "ws://127.0.0.1:47833";
 const TOKEN_URL = "/bridge-token";
 
 // The bridge token — fetched at boot from the same-origin HTTP server. The

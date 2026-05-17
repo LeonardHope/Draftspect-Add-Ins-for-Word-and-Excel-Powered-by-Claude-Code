@@ -8,7 +8,7 @@
        dynamic content is rendered with .textContent today (correct), but
        this catches regressions. script-src allows our own origin + the
        Office.js CDN; connect-src allows the same-origin /bridge-token
-       fetch + the WS bridge (127.0.0.1:47823). NOTE: if a future Office
+       fetch + the WS bridge (127.0.0.1:47833). NOTE: if a future Office
        build pulls scripts from another Microsoft origin and the panel
        goes blank, widen script-src/connect-src — do NOT remove the
        policy. Needs live verification in Word AND Excel. -->
@@ -18,7 +18,7 @@
                  script-src 'self' https://appsforoffice.microsoft.com;
                  style-src 'self' 'unsafe-inline';
                  img-src 'self' data:;
-                 connect-src 'self' ws://127.0.0.1:47823;
+                 connect-src 'self' ws://127.0.0.1:47833;
                  base-uri 'none';
                  object-src 'none'"
     />

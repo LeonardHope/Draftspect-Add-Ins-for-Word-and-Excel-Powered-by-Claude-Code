@@ -11,12 +11,12 @@
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Draftspect for Excel" />
   <Description DefaultValue="Draftspect brings Claude into Excel — read and edit the active workbook and pull in workspace context files. Powered by Claude." />
-  <IconUrl DefaultValue="http://127.0.0.1:47824/icon-32.png" />
-  <HighResolutionIconUrl DefaultValue="http://127.0.0.1:47824/icon-64.png" />
-  <SupportUrl DefaultValue="http://127.0.0.1:47824/" />
+  <IconUrl DefaultValue="http://127.0.0.1:47834/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="http://127.0.0.1:47834/icon-64.png" />
+  <SupportUrl DefaultValue="http://127.0.0.1:47834/" />
 
   <AppDomains>
-    <AppDomain>http://127.0.0.1:47824</AppDomain>
+    <AppDomain>http://127.0.0.1:47834</AppDomain>
   </AppDomains>
 
   <!--
@@ -36,7 +36,7 @@
   </Hosts>
 
   <DefaultSettings>
-    <SourceLocation DefaultValue="http://127.0.0.1:47824/excel/index.html" />
+    <SourceLocation DefaultValue="http://127.0.0.1:47834/excel/index.html" />
   </DefaultSettings>
 
   <Permissions>ReadWriteDocument</Permissions>
