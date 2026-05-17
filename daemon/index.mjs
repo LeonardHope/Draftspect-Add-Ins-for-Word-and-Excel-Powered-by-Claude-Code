@@ -1192,6 +1192,8 @@ function handleAgentMessage(msg, session) {
             console.warn("[daemon] Could not save session id:", err.message),
           );
         }
+      } else {
+        console.log(`[agent] system/${msg.subtype}`);
       }
       break;
     }
@@ -1228,11 +1230,14 @@ function handleAgentMessage(msg, session) {
       break;
     }
     case "result": {
-      console.log(`[agent] turn complete (${msg.subtype})`);
+      console.log(
+        `[agent] turn complete (${msg.subtype}) slash=${!!session?.slashCommandPending} output=${!!session?.turnProducedOutput}`,
+      );
       // A slash command that emitted neither assistant text nor a tool call
       // (terminal-only built-ins: /help, /context, /clear, …) would
       // otherwise complete silently and look broken. Surface a note.
       if (session?.slashCommandPending && !session.turnProducedOutput) {
+        console.log("[agent] slash command produced no output — sending info note");
         bridge.sendAssistantEvent(
           {
             event: "info",
