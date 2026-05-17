@@ -879,8 +879,18 @@ async function* userMessageStream(key, session) {
       return;
     }
     const { text, context } = msg;
+    // The Agent SDK only treats a turn as a slash command (built-in or a
+    // custom .claude/commands/*.md) when the message *starts with* "/".
+    // Our per-turn context header (Host:/Doc:/Selection:) would otherwise
+    // push the "/" off the front and the command would be sent to the
+    // model as prose. So for a slash command, send it bare (leading
+    // whitespace trimmed so detection works) and skip the header — the
+    // command template is self-contained; it can call office_* tools if
+    // it needs doc context.
+    const trimmed = typeof text === "string" ? text.trimStart() : text;
+    const isSlashCommand = typeof trimmed === "string" && trimmed.startsWith("/");
     const header = renderContextHeader(context);
-    const content = header ? `${header}\n\n${text}` : text;
+    const content = isSlashCommand ? trimmed : header ? `${header}\n\n${text}` : text;
     yield {
       type: "user",
       message: { role: "user", content },
