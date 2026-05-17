@@ -610,6 +610,8 @@ async function handleServerMessage(msg) {
       } else if (msg.event === "turn_complete") {
         setAgentStatus("idle", msg.interrupted ? "Stopped" : "Ready");
         endTurn();
+      } else if (msg.event === "info") {
+        appendEvent(msg.message);
       } else if (msg.event === "error") {
         appendEvent(`Error: ${msg.error}`);
         setAgentStatus("idle", "Ready");

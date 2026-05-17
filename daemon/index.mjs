@@ -891,6 +891,13 @@ async function* userMessageStream(key, session) {
     const isSlashCommand = typeof trimmed === "string" && trimmed.startsWith("/");
     const header = renderContextHeader(context);
     const content = isSlashCommand ? trimmed : header ? `${header}\n\n${text}` : text;
+    // Per-turn tracking so a slash command that produces no assistant text
+    // or tool call (terminal-only built-ins like /help, /context, /clear)
+    // doesn't look like a dead chat. Reset at the start of every turn.
+    if (session) {
+      session.slashCommandPending = isSlashCommand;
+      session.turnProducedOutput = false;
+    }
     yield {
       type: "user",
       message: { role: "user", content },
@@ -1194,6 +1201,7 @@ function handleAgentMessage(msg, session) {
       // content_block_stop, message_start/stop) we currently ignore.
       const delta = msg.event?.delta;
       if (delta?.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) {
+        if (session) session.turnProducedOutput = true;
         bridge.sendAssistantText(delta.text, session?.key);
       }
       break;
@@ -1206,6 +1214,7 @@ function handleAgentMessage(msg, session) {
       for (const block of blocks) {
         if (block.type === "tool_use") {
           diag("model called tool:", block.name);
+          if (session) session.turnProducedOutput = true;
           bridge.sendAssistantEvent(
             {
               event: "tool_use_announce",
@@ -1220,6 +1229,23 @@ function handleAgentMessage(msg, session) {
     }
     case "result": {
       console.log(`[agent] turn complete (${msg.subtype})`);
+      // A slash command that emitted neither assistant text nor a tool call
+      // (terminal-only built-ins: /help, /context, /clear, …) would
+      // otherwise complete silently and look broken. Surface a note.
+      if (session?.slashCommandPending && !session.turnProducedOutput) {
+        bridge.sendAssistantEvent(
+          {
+            event: "info",
+            message:
+              "Command ran, but produced no chat output. Some built-in commands (e.g. /help, /context, /clear) are terminal-only and don't return anything here — custom .claude/commands and content-producing commands do.",
+          },
+          session?.key,
+        );
+      }
+      if (session) {
+        session.slashCommandPending = false;
+        session.turnProducedOutput = false;
+      }
       bridge.sendAssistantEvent({ event: "turn_complete", subtype: msg.subtype }, session?.key);
       break;
     }
