@@ -433,6 +433,15 @@ body {
   align-self: flex-start;
   padding: 2px 4px;
 }
+/* A user-facing system notice (e.g. "command ran, no output"). Unlike
+   .msg.event it is NEVER hidden by the diagnostics toggle — the user is
+   meant to see it. */
+.msg.notice {
+  background: var(--bubble-asst);
+  color: var(--fg-muted);
+  font-size: 12px;
+  align-self: flex-start;
+}
 .msg.tool {
   background: var(--bubble-tool);
   align-self: flex-start;

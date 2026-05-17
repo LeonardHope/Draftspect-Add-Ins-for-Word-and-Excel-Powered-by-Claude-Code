@@ -149,9 +149,6 @@ const http = createServer(async (req, res) => {
       return;
     }
 
-    // Diagnostic: shows whether the pane actually re-fetches index.html and
-    // the cache-busted taskpane.js (vs. serving a cached bundle).
-    console.log(`[http] ${req.url}`);
     const relPath = urlPath === "/" ? "/index.html" : urlPath;
     const fsPath = join(taskpaneDir, relPath);
     // Containment check. `join` already normalizes `../`, so the obvious

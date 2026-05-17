@@ -345,6 +345,17 @@ function appendEvent(text) {
   assistantTurnElem = null;
 }
 
+// Like appendEvent, but a user-facing notice that is always visible (not
+// gated by the "Show diagnostics" toggle, which hides .msg.event).
+function appendNotice(text) {
+  const el = document.createElement("div");
+  el.className = "msg notice";
+  el.textContent = text;
+  $messages.appendChild(el);
+  $messages.scrollTop = $messages.scrollHeight;
+  assistantTurnElem = null;
+}
+
 function appendToolUse(name, args) {
   const el = document.createElement("div");
   el.className = "msg tool";
@@ -611,7 +622,7 @@ async function handleServerMessage(msg) {
         setAgentStatus("idle", msg.interrupted ? "Stopped" : "Ready");
         endTurn();
       } else if (msg.event === "info") {
-        appendEvent(msg.message);
+        appendNotice(msg.message);
       } else if (msg.event === "error") {
         appendEvent(`Error: ${msg.error}`);
         setAgentStatus("idle", "Ready");
