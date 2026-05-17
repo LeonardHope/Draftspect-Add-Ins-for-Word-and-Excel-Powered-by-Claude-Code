@@ -158,6 +158,8 @@ The daemon talks to Claude Code **through the Agent SDK**, never by shelling out
 4. **Add context files** for material **outside** the workspace folder — notes, prior drafts, a vendor's spec, a glossary, anywhere on disk. Setup tab → Context files → **+ Add file** / **+ Add folder**, with an optional one-line description so Claude knows when to consult it. Entries are saved into the workspace's `CLAUDE.md` and read on demand via `Read`/`Glob`/`Grep`. (Files _inside_ the workspace don't need adding — Claude reaches them already.)
 5. Chat in the **Chat** tab. Pinned presets (chips above the input) are one-click prompts.
 
+**Slash commands** work from the chat box: type `/yourcommand` and your custom commands (`.claude/commands/*.md` in the workspace, or `~/.claude/commands/*.md`) run just like in the terminal. Note that purely interactive, terminal-only built-ins (`/help`, `/context`, `/clear`, …) produce no chat output — Draftspect shows a one-line "command ran, no output" note so it's clear it executed rather than failing.
+
 ### Known limitation: cloud-hosted documents (OneDrive / SharePoint)
 
 Workspace auto-detection relies on the host app giving the add-in the document's local file path. Office.js only exposes `Office.context.document.url`, and what that contains depends on how the file's sync provider integrates with Word/Excel — this is intrinsic host behavior the add-in can't override, and it's the same on macOS and Windows:
