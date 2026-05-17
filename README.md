@@ -158,6 +158,15 @@ The daemon talks to Claude Code **through the Agent SDK**, never by shelling out
 4. **Add context files** for material **outside** the workspace folder — notes, prior drafts, a vendor's spec, a glossary, anywhere on disk. Setup tab → Context files → **+ Add file** / **+ Add folder**, with an optional one-line description so Claude knows when to consult it. Entries are saved into the workspace's `CLAUDE.md` and read on demand via `Read`/`Glob`/`Grep`. (Files _inside_ the workspace don't need adding — Claude reaches them already.)
 5. Chat in the **Chat** tab. Pinned presets (chips above the input) are one-click prompts.
 
+### Known limitation: cloud-hosted documents (OneDrive / SharePoint)
+
+Workspace auto-detection relies on the host app giving the add-in the document's local file path. Office.js only exposes `Office.context.document.url`, and what that contains depends on how the file's sync provider integrates with Word/Excel — this is intrinsic host behavior the add-in can't override, and it's the same on macOS and Windows:
+
+- **Local folders** and **Google Drive for Desktop** present the document as an ordinary local file, so `document.url` is a real filesystem path. Workspace detection works normally.
+- **OneDrive** and **SharePoint** documents are cloud-service-native: the app treats the Microsoft 365 service as the document's canonical location (it co-authors / AutoSaves against the service, not the local synced copy), so `document.url` is an `https://…sharepoint.com/…` URL. There is no API that returns the local synced path for these files — by design.
+
+**Workaround:** the synced copy still exists on disk under your OneDrive/SharePoint folder. Open the add-in → **Setup → Change workspace** and point Draftspect at that local folder yourself; add anything outside it as a **context file**. Everything works normally once the workspace is set — only the _automatic_ detection is affected.
+
 ### Default presets
 
 Presets are host-specific — Word and Excel each get their own set, editable in the **Presets** tab.
@@ -303,7 +312,7 @@ At daemon start the log shows `Loaded N MCP server(s) from ~/.claude.json: …`.
 <details>
 <summary><strong>The workspace is the wrong folder</strong></summary>
 
-The workspace follows the open document's folder automatically. If it's wrong, the document is likely cloud-hosted (SharePoint/OneDrive — no local path), or you explicitly picked a different folder earlier. Use **Change workspace** in the Setup tab to set it; that choice holds until you open a document in a different folder.
+The workspace follows the open document's folder automatically. If it's wrong, either you explicitly picked a different folder earlier, or the document is cloud-hosted (OneDrive/SharePoint) — auto-detection can't work for those by design (see [Known limitation: cloud-hosted documents](#known-limitation-cloud-hosted-documents-onedrive--sharepoint)). Use **Change workspace** in the Setup tab to set it; that choice holds until you open a document in a different folder.
 
 </details>
 
