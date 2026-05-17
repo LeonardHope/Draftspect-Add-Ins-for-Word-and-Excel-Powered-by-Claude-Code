@@ -159,10 +159,24 @@ const http = createServer(async (req, res) => {
       res.writeHead(403).end("Forbidden");
       return;
     }
-    const data = await readFile(fsPath);
-    const mime = MIME[extname(fsPath).toLowerCase()] || "application/octet-stream";
-    res.writeHead(200, { "Content-Type": mime });
-    res.end(data);
+    const ext = extname(fsPath).toLowerCase();
+    const mime = MIME[ext] || "application/octet-stream";
+    if (ext === ".html") {
+      // Office's webview caches the JS/CSS bundle aggressively and ignores
+      // our no-store headers — so a taskpane code change wouldn't take
+      // effect even after reopening the pane. Cache-bust the local asset
+      // refs with the per-start bridge token: every daemon restart yields a
+      // fresh URL, forcing a re-fetch. (The handler strips the query string
+      // before resolving the file, so `?v=` doesn't affect routing.)
+      let html = await readFile(fsPath, "utf8");
+      html = html.replace(/(\/shared\/(?:taskpane\.js|styles\.css))"/g, `$1?v=${BRIDGE_TOKEN}"`);
+      res.writeHead(200, { "Content-Type": mime });
+      res.end(html);
+    } else {
+      const data = await readFile(fsPath);
+      res.writeHead(200, { "Content-Type": mime });
+      res.end(data);
+    }
   } catch (err) {
     const reqPath = (req.url || "/").split("?")[0];
     if (err.code === "ENOENT") {
