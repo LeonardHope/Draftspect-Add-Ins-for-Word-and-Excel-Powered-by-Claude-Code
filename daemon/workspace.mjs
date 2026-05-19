@@ -18,6 +18,9 @@
 // workspace; the user can pick a real folder instead.
 
 import { writeFile, stat } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { homedir } from "node:os";
 import { join, dirname, basename, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,6 +28,29 @@ import { isSystemHomeChild } from "./system-paths.mjs";
 
 const MARKERS = ["CLAUDE.md", ".claude"];
 const HOME = homedir();
+
+// Detect WSL once at module load. When the daemon runs under WSL, the
+// taskpane (in Word on Windows) sends `C:\Users\...\file.docx`-style
+// paths that mean nothing to a Linux process — they must be translated
+// to `/mnt/c/Users/.../file.docx` before any stat/dirname can work.
+const IS_WSL = (() => {
+  if (process.platform !== "linux") return false;
+  try {
+    return /microsoft|wsl/i.test(readFileSync("/proc/version", "utf8"));
+  } catch {
+    return false;
+  }
+})();
+const execFileP = promisify(execFile);
+
+async function winPathToWsl(p) {
+  try {
+    const { stdout } = await execFileP("wslpath", ["-u", p]);
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
 
 // Office.js gives us paths in a few shapes depending on platform and where
 // the doc came from:
@@ -36,7 +62,7 @@ const HOME = homedir();
 // Hand the URL forms to fileURLToPath so the Windows drive letter survives
 // (a manual `replace(/^file:\/\//)` turns "file:///C:/x" into "/C:/x").
 // Treat non-file:// URLs (SharePoint, OneDrive cloud) as unaddressable.
-function normalizeDocPath(docPath) {
+async function normalizeDocPath(docPath) {
   if (!docPath) return null;
   if (/^file:\/\//i.test(docPath)) {
     try {
@@ -48,12 +74,18 @@ function normalizeDocPath(docPath) {
   // A Windows drive path (C:\… or C:/…) or a UNC share (\\host\share)
   // is a real filesystem path, NOT a URL — and must be recognized BEFORE
   // the scheme check below, because a bare "C:" matches the URL-scheme
-  // regex and would be wrongly discarded. That was the symptom on
-  // Windows: the workspace always fell back to the daemon's launch dir
-  // instead of the open document's folder. Don't decodeURIComponent
-  // here — Office hands Windows local paths verbatim, so a literal "%"
-  // in a filename must survive.
+  // regex and would be wrongly discarded.
+  //
+  // Under WSL, hand these to wslpath -u so a Windows-side Word path
+  // ("C:\\Users\\me\\Docs\\foo.docx") becomes a Linux-readable
+  // /mnt/c/... path the daemon can stat. Without that step,
+  // resolvePath() interprets the Windows path as a relative one on
+  // Linux and the daemon falls back to its launch dir.
   if (/^[a-zA-Z]:[\\/]/.test(docPath) || /^\\\\[^\\]/.test(docPath)) {
+    if (IS_WSL) {
+      const wslPath = await winPathToWsl(docPath);
+      return wslPath ? resolvePath(wslPath) : null;
+    }
     return resolvePath(docPath);
   }
   if (/^[a-z][a-z0-9+.-]*:/i.test(docPath)) {
@@ -77,7 +109,7 @@ async function docDirOf(p) {
 // its folder isn't a sane cwd ($HOME itself / an OS-managed $HOME child /
 // the filesystem root).
 export async function resolveWorkspaceRoot(docPath) {
-  const p = normalizeDocPath(docPath);
+  const p = await normalizeDocPath(docPath);
   if (!p) return null;
   const docDir = await docDirOf(p);
   if (docDir === HOME || isSystemHomeChild(docDir) || dirname(docDir) === docDir) {
