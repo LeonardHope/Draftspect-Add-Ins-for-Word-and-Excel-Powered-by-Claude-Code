@@ -326,13 +326,144 @@ function appendUserMessage(text) {
   assistantTurnElem = null;
 }
 
+// ---- Markdown renderer (minimal, on-by-default, toggleable) ----------------
+// Handles the subset Claude actually emits: **bold**, *italic*, `code`,
+// ```fenced code```, # / ## / ### headers, - / * bullets, 1. numbered,
+// [text](url) links. Everything else falls through as plain text.
+// HTML-escapes inputs BEFORE applying transforms, so the output is safe to
+// drop into innerHTML without a sanitizer.
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderInline(s) {
+  let h = escapeHtml(s);
+  // Inline code first — anything inside backticks shouldn't be re-processed.
+  // The pre-escape already turned <, >, & into entities, so the code is safe.
+  h = h.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  // Links: [text](url). Url is from escapeHtml so quotes are safe; we still
+  // refuse anything that doesn't start with http(s):// or mailto: to keep
+  // javascript:/data: URIs out of the DOM.
+  h = h.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
+    if (!/^(https?:\/\/|mailto:)/i.test(url)) return text;
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+  });
+  // Bold then italic. Bold first so the ** in **foo** doesn't get eaten as
+  // two adjacent *. Both reject newlines so an unclosed marker mid-stream
+  // doesn't swallow the rest of the message.
+  h = h.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  h = h.replace(/(?<![*\w])\*([^*\n]+)\*(?!\w)/g, "<em>$1</em>");
+  h = h.replace(/(?<![_\w])_([^_\n]+)_(?!\w)/g, "<em>$1</em>");
+  return h;
+}
+
+function renderMarkdown(src) {
+  const lines = String(src).split("\n");
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Fenced code block. An unclosed fence (mid-stream) absorbs the rest
+    // of the buffer — fine, it just keeps growing as more deltas land.
+    if (/^```/.test(line)) {
+      i++;
+      const code = [];
+      while (i < lines.length && !/^```/.test(lines[i])) {
+        code.push(lines[i]);
+        i++;
+      }
+      if (i < lines.length) i++; // skip closing fence
+      out.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+      continue;
+    }
+
+    // Headers (#, ##, ###)
+    const h = line.match(/^(#{1,3})\s+(.+)$/);
+    if (h) {
+      out.push(`<h${h[1].length}>${renderInline(h[2])}</h${h[1].length}>`);
+      i++;
+      continue;
+    }
+
+    // Unordered list — consecutive `- ` or `* ` lines.
+    if (/^[-*]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i])) {
+        items.push(`<li>${renderInline(lines[i].replace(/^[-*]\s+/, ""))}</li>`);
+        i++;
+      }
+      out.push(`<ul>${items.join("")}</ul>`);
+      continue;
+    }
+
+    // Ordered list — consecutive `N. ` lines. Preserve the source's
+    // starting number via the `start` attribute so a list split across
+    // paragraphs ("1. foo … explanation … 2. bar") still numbers
+    // correctly. Otherwise each chunk would render its own <ol> starting
+    // at 1, and every item would show "1." regardless of source.
+    if (/^\d+\.\s+/.test(line)) {
+      const startNum = parseInt(line.match(/^(\d+)\./)[1], 10) || 1;
+      const items = [];
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
+        items.push(`<li>${renderInline(lines[i].replace(/^\d+\.\s+/, ""))}</li>`);
+        i++;
+      }
+      out.push(`<ol start="${startNum}">${items.join("")}</ol>`);
+      continue;
+    }
+
+    // Blank line — paragraph break.
+    if (line.trim() === "") {
+      i++;
+      continue;
+    }
+
+    // Paragraph — consume until blank or block-start.
+    const para = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() !== "" &&
+      !/^```/.test(lines[i]) &&
+      !/^#{1,3}\s/.test(lines[i]) &&
+      !/^[-*]\s/.test(lines[i]) &&
+      !/^\d+\.\s/.test(lines[i])
+    ) {
+      para.push(lines[i]);
+      i++;
+    }
+    out.push(`<p>${renderInline(para.join("\n")).replace(/\n/g, "<br>")}</p>`);
+  }
+  return out.join("");
+}
+
+// Render an assistant bubble's content using whichever mode the setting
+// currently calls for. The raw source text is stashed on dataset.raw so a
+// toggle of `renderMarkdown` can re-render the same bubble.
+function renderAssistantBubble(el, raw) {
+  el.dataset.raw = raw;
+  if (settings.renderMarkdown !== false) {
+    el.classList.add("md-rendered");
+    el.innerHTML = renderMarkdown(raw);
+  } else {
+    el.classList.remove("md-rendered");
+    el.textContent = raw;
+  }
+}
+
 function appendAssistantDelta(delta) {
   if (!assistantTurnElem) {
     assistantTurnElem = document.createElement("div");
     assistantTurnElem.className = "msg assistant";
+    assistantTurnElem.dataset.raw = "";
     $messages.appendChild(assistantTurnElem);
   }
-  assistantTurnElem.textContent += delta;
+  renderAssistantBubble(assistantTurnElem, (assistantTurnElem.dataset.raw ?? "") + delta);
   $messages.scrollTop = $messages.scrollHeight;
 }
 
@@ -375,7 +506,7 @@ function appendToolUse(name, args) {
 function appendAssistantMessage(text) {
   const el = document.createElement("div");
   el.className = "msg assistant";
-  el.textContent = text;
+  renderAssistantBubble(el, text);
   $messages.appendChild(el);
   $messages.scrollTop = $messages.scrollHeight;
   assistantTurnElem = null;
@@ -441,6 +572,9 @@ function defaultSettings() {
     // Global, sticky. Cheaper models use less of your monthly Claude
     // programmatic credit. "default" defers to the Claude Code CLI config.
     model: "sonnet", // "haiku" | "sonnet" | "opus" | "default"
+    // Render Claude's markdown (**bold**, lists, headers, code blocks)
+    // as formatted HTML in chat bubbles. Off = literal characters.
+    renderMarkdown: true,
   };
 }
 
@@ -476,6 +610,8 @@ function applySettings() {
   if ($tcMode) $tcMode.value = settings.trackChangesMode || "always";
   const $model = document.getElementById("composer-model");
   if ($model) $model.value = settings.model || "sonnet";
+  const $md = document.getElementById("setting-render-markdown");
+  if ($md) $md.checked = settings.renderMarkdown !== false;
 }
 
 // Push the chosen model to the daemon. The SDK model is fixed per agent
@@ -489,6 +625,18 @@ document.getElementById("setting-show-diagnostics").addEventListener("change", (
   settings.showDiagnostics = e.target.checked;
   saveSettings(settings);
   applySettings();
+});
+
+document.getElementById("setting-render-markdown")?.addEventListener("change", (e) => {
+  settings.renderMarkdown = e.target.checked;
+  saveSettings(settings);
+  applySettings();
+  // Re-render every assistant bubble already on screen so the toggle is
+  // immediate, not "only future messages." Each bubble carries its raw
+  // source text in dataset.raw exactly so we can do this.
+  for (const el of $messages.querySelectorAll(".msg.assistant")) {
+    renderAssistantBubble(el, el.dataset.raw ?? el.textContent);
+  }
 });
 
 // Word-only control; the Excel pane omits this element entirely.
