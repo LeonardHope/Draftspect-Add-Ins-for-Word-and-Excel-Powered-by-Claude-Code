@@ -80,10 +80,20 @@ export async function resolveWorkspaceRoot(docPath) {
   const p = normalizeDocPath(docPath);
   if (!p) return null;
   const docDir = await docDirOf(p);
-  if (docDir === HOME || isSystemHomeChild(docDir) || dirname(docDir) === docDir) {
+  if (docDir === HOME || isSystemHomeChild(docDir) || isFilesystemRoot(docDir)) {
     return null;
   }
   return docDir;
+}
+
+// `dirname(p) === p` is the classic "p is a root" test, but on Windows it
+// also fires for a UNC share root (`\\server\share\`) — and a share root
+// IS a real folder a user can sanely treat as a workspace (the share is a
+// folder, unlike `C:\` which is the drive itself). Block drive / POSIX
+// roots, allow UNC share roots.
+function isFilesystemRoot(p) {
+  if (dirname(p) !== p) return false;
+  return !/^\\\\/.test(p);
 }
 
 // Same answer, in the shape the taskpane expects. confidence is always
