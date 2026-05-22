@@ -442,6 +442,23 @@ body {
   font-size: 12px;
   align-self: flex-start;
 }
+/* User-facing error bubble (usage-limit hit, auth failure surfaced inline,
+   stream-end-without-result). Deliberately NOT in the data-show-diagnostics
+   hide rule — if the agent's turn stops because of an error, the user must
+   see why. Prominent border + ⚠ prefix make it impossible to miss. */
+.msg.error {
+  background: var(--bubble-asst);
+  color: var(--fg);
+  border: 1px solid var(--status-err);
+  border-left-width: 3px;
+  align-self: flex-start;
+  font-size: 13px;
+}
+.msg.error::before {
+  content: "⚠ ";
+  color: var(--status-err);
+  font-weight: 600;
+}
 .msg.tool {
   background: var(--bubble-tool);
   align-self: flex-start;

@@ -319,12 +319,39 @@ function statusForTool(name) {
   return "Working…";
 }
 
+// Autoscroll is "pinned" only while the user is at (or near) the bottom of
+// the chat. The previous behavior unconditionally snapped to bottom on
+// every append (streaming deltas, events, tool chips, replay), which made
+// scrolling up to read mid-stream impossible — the next token snapped you
+// back. nearBottom uses a 48px tolerance so a small natural-scroll wobble
+// while reading the latest message still counts as pinned.
+let scrollPinned = true;
+function nearBottom() {
+  return $messages.scrollHeight - $messages.scrollTop - $messages.clientHeight <= 48;
+}
+function maybeScrollToBottom() {
+  if (scrollPinned) $messages.scrollTop = $messages.scrollHeight;
+}
+function forceScrollToBottom() {
+  scrollPinned = true;
+  $messages.scrollTop = $messages.scrollHeight;
+}
+$messages.addEventListener(
+  "scroll",
+  () => {
+    scrollPinned = nearBottom();
+  },
+  { passive: true },
+);
+
 function appendUserMessage(text) {
   const el = document.createElement("div");
   el.className = "msg user";
   el.textContent = text;
   $messages.appendChild(el);
-  $messages.scrollTop = $messages.scrollHeight;
+  // The user just sent a message — they want to see what comes next.
+  // Override any prior scroll-up.
+  forceScrollToBottom();
   assistantTurnElem = null;
 }
 
@@ -335,7 +362,7 @@ function appendAssistantDelta(delta) {
     $messages.appendChild(assistantTurnElem);
   }
   assistantTurnElem.textContent += delta;
-  $messages.scrollTop = $messages.scrollHeight;
+  maybeScrollToBottom();
 }
 
 function appendEvent(text) {
@@ -343,7 +370,7 @@ function appendEvent(text) {
   el.className = "msg event";
   el.textContent = text;
   $messages.appendChild(el);
-  $messages.scrollTop = $messages.scrollHeight;
+  maybeScrollToBottom();
   assistantTurnElem = null;
 }
 
@@ -354,7 +381,22 @@ function appendNotice(text) {
   el.className = "msg notice";
   el.textContent = text;
   $messages.appendChild(el);
-  $messages.scrollTop = $messages.scrollHeight;
+  maybeScrollToBottom();
+  assistantTurnElem = null;
+}
+
+// An always-visible alert bubble for errors that stop the turn (usage-limit
+// hit, stream ended without a result, etc.). NOT routed through appendEvent
+// because .msg.event is hidden when diagnostics-off — a user hitting their
+// limit would otherwise see nothing, the turn would silently stop, and the
+// status would flip back to "Ready". This bubble is rendered with a
+// prominent border and a ⚠ prefix and is never hidden by the toggle.
+function appendError(text) {
+  const el = document.createElement("div");
+  el.className = "msg error";
+  el.textContent = text;
+  $messages.appendChild(el);
+  maybeScrollToBottom();
   assistantTurnElem = null;
 }
 
@@ -367,7 +409,7 @@ function appendToolUse(name, args) {
   el.querySelector(".tool-args").textContent =
     argText.length > 200 ? argText.slice(0, 197) + "..." : argText;
   $messages.appendChild(el);
-  $messages.scrollTop = $messages.scrollHeight;
+  maybeScrollToBottom();
   assistantTurnElem = null;
 }
 
@@ -379,7 +421,7 @@ function appendAssistantMessage(text) {
   el.className = "msg assistant";
   el.textContent = text;
   $messages.appendChild(el);
-  $messages.scrollTop = $messages.scrollHeight;
+  maybeScrollToBottom();
   assistantTurnElem = null;
 }
 
@@ -410,7 +452,9 @@ function renderTranscriptReplay(events, truncated) {
     d.className = "transcript-divider";
     d.textContent = "end of earlier conversation";
     $messages.appendChild(d);
-    $messages.scrollTop = $messages.scrollHeight;
+    // End of a replay is an explicit "take me to latest" — the user just
+    // resumed, they want the cursor at the live tail.
+    forceScrollToBottom();
   }
 }
 
@@ -626,8 +670,11 @@ async function handleServerMessage(msg) {
       } else if (msg.event === "info") {
         appendNotice(msg.message);
       } else if (msg.event === "error") {
-        appendEvent(`Error: ${msg.error}`);
-        setAgentStatus("idle", "Ready");
+        // Always-visible bubble (NOT .msg.event, which the diagnostics
+        // toggle hides). Status reads "Stopped — see message" so the
+        // user knows the turn ended on this error, not normally.
+        appendError(msg.error || "The agent stopped without producing a result.");
+        setAgentStatus("idle", "Stopped — see message");
         endTurn();
       } else if (msg.event === "auth_error") {
         showAuthErrorBanner(msg.error);
