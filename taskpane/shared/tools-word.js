@@ -95,9 +95,7 @@ async function getReviewedTextBatch(context, ranges) {
   if (!ranges || ranges.length === 0) return [];
   const saved = context.document.getSelection();
   try {
-    const results = ranges.map((r) =>
-      r.getReviewedText(Word.ChangeTrackingVersion.current),
-    );
+    const results = ranges.map((r) => r.getReviewedText(Word.ChangeTrackingVersion.current));
     await context.sync();
     try {
       saved.select();
@@ -461,8 +459,7 @@ export async function toolReadParagraphs({ ids, heading_section, range, preview 
 
     return {
       paragraphs: picked.map((p, k) => {
-        const full =
-          reviewedByPicked && reviewedByPicked[k] != null ? reviewedByPicked[k] : p.text;
+        const full = reviewedByPicked && reviewedByPicked[k] != null ? reviewedByPicked[k] : p.text;
         const isTruncated = truncate && full.length > PREVIEW_LEN;
         return {
           id: p.id,
