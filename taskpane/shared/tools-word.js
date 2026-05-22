@@ -561,6 +561,35 @@ export async function toolReplaceText({
 }
 
 // ---------------------------------------------------------------------------
+// Tool: office_delete_paragraphs — remove paragraphs entirely (including
+// their paragraph marks). office_replace_text with replace:"" only blanks
+// text — the paragraph mark survives, so a stale/duplicated paragraph stays
+// as an empty line. This is the only path that actually collapses the doc.
+// ---------------------------------------------------------------------------
+export async function toolDeleteParagraphs({ paragraph_ids, track_changes }) {
+  if (!Array.isArray(paragraph_ids) || paragraph_ids.length === 0) {
+    throw new Error("paragraph_ids must be a non-empty array");
+  }
+  return await Word.run(async (context) =>
+    withTrackChanges(context, track_changes, async () => {
+      const { paragraphs, idMode } = await getParagraphsWithIds(context);
+      // Resolve every target to its paragraph proxy BEFORE deleting any.
+      // Each delete() shifts subsequent indices, but the already-resolved
+      // proxy objects stay valid — so collect first, delete second.
+      const targets = [];
+      for (const id of paragraph_ids) {
+        const idx = findIndexById(paragraphs, id, idMode);
+        if (idx === -1) throw new Error(`Paragraph not found: ${id}`);
+        targets.push(paragraphs.items[idx]);
+      }
+      for (const p of targets) p.delete();
+      await context.sync();
+      return { deleted: targets.length };
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Tool: office_replace_section
 // ---------------------------------------------------------------------------
 export async function toolReplaceSection({

@@ -7,6 +7,7 @@ import {
   toolReplaceParagraphs,
   toolReplaceText,
   toolReplaceSection,
+  toolDeleteParagraphs,
   toolHighlight,
   toolClearHighlights,
   toolAddComment,
@@ -242,6 +243,7 @@ const TOOL_STATUS_LABELS = {
   office_replace_text: "Editing text…",
   office_replace_paragraphs: "Replacing paragraphs…",
   office_replace_section: "Rewriting section…",
+  office_delete_paragraphs: "Deleting paragraphs…",
   office_highlight: "Highlighting…",
   office_clear_highlights: "Clearing highlights…",
   office_add_comment: "Adding comment…",
@@ -750,6 +752,9 @@ async function runOfficeTool(msg) {
         break;
       case "office_replace_section":
         result = await toolReplaceSection(writeArgs());
+        break;
+      case "office_delete_paragraphs":
+        result = await toolDeleteParagraphs(writeArgs());
         break;
       case "office_replace_text":
         result = await toolReplaceText(writeArgs());

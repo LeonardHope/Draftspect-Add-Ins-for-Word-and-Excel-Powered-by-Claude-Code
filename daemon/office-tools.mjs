@@ -287,6 +287,23 @@ export function createOfficeBridgeMcp(bridge, host = null, paneKey = null) {
     },
   );
 
+  const office_delete_paragraphs = tool(
+    "office_delete_paragraphs",
+    'Delete entire paragraphs by ID — removes each paragraph AND its paragraph mark so the document collapses (not just blanking the text). Use when a paragraph should be gone entirely (e.g. removing a stale or duplicated paragraph). To remove only part of a paragraph\'s text, use office_replace_text with replace:"" instead — that leaves the paragraph mark in place. With track_changes on (default), each deletion is recorded as a tracked change the user can review.',
+    {
+      paragraph_ids: z.array(z.string()).describe("IDs of the paragraphs to delete entirely."),
+      track_changes: z.boolean().optional().default(true),
+    },
+    async (args) => {
+      try {
+        const r = await call("office_delete_paragraphs", args);
+        return asMcpResult(r);
+      } catch (e) {
+        return asMcpError(e);
+      }
+    },
+  );
+
   const office_replace_section = tool(
     "office_replace_section",
     "Replace an entire section of the active Word document, identified by its heading text. Finds the heading and replaces everything from immediately after the heading until the next same-or-higher-level heading. **Use ONLY for explicit whole-section rewrites** where the user has clearly asked to throw the existing content away and start over: 'redraft the entire Background,' 'start the Summary over from scratch.' For any request that would leave most paragraphs of the section unchanged, do NOT use this tool — use `office_replace_text` for the actual changes (or `office_replace_paragraphs` for the genuinely-rewritten paragraphs). Re-emitting unchanged paragraphs just to keep them blows up the diff and risks destroying user edits. Set `track_changes: true` when revising existing content; leave false (default) when drafting from scratch.",
@@ -809,6 +826,7 @@ export function createOfficeBridgeMcp(bridge, host = null, paneKey = null) {
     office_replace_paragraphs,
     office_replace_text,
     office_replace_section,
+    office_delete_paragraphs,
     office_highlight,
     office_clear_highlights,
     office_add_comment,
