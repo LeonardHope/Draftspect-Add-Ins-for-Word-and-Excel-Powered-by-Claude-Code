@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import { createBridge } from "./bridge.mjs";
 import { createOfficeBridgeMcp } from "./office-tools.mjs";
 import { resolveWorkspaceRoot, suggestWorkspaceRoot, ensureWorkspaceMarker } from "./workspace.mjs";
+import { rememberCloudMirror, lookupCloudMirror, isCloudUrl } from "./cloud-mirrors.mjs";
 import { randomUUID } from "node:crypto";
 import { getSessionId, saveSessionId, touchFolder } from "./sessions.mjs";
 import { readTranscript } from "./transcript.mjs";
@@ -265,6 +266,11 @@ const workspaceByKey = new Map();
 // Panes whose workspace the user set explicitly (Change workspace). Their
 // workspace must NOT be re-derived from the document folder on reconnect.
 const explicitWorkspaceKeys = new Set();
+// One-shot "this is a cloud doc — set a workspace once" nudge. Shown per
+// pane lifetime; pane close clears the slot. Reconnects (same key) do NOT
+// re-show. Different docs get different keys, so they each get their own
+// nudge if/when needed.
+const cloudNudgeShownForKey = new Set();
 // Per-pane sticky model choice (set by the taskpane composer). The SDK
 // model is fixed per agent loop, so a change while a loop is live triggers
 // a resuming restart (see the set_model handler).
@@ -428,7 +434,18 @@ async function onPaneConnect(key, host, doc) {
   if (doc && !explicitWorkspaceKeys.has(key) && !sessionFor(key)) {
     try {
       const folder = await resolveWorkspaceRoot(doc);
-      if (folder) workspaceByKey.set(key, folder);
+      if (folder) {
+        workspaceByKey.set(key, folder);
+      } else if (isCloudUrl(doc)) {
+        // Cloud doc (SharePoint / OneDrive HTTPS) — try the learned
+        // cloud-mirror map. If the user has previously picked a local
+        // workspace under this URL prefix, follow it automatically.
+        const mirrored = await lookupCloudMirror(doc);
+        if (mirrored) {
+          workspaceByKey.set(key, mirrored);
+          console.log(`[daemon] cloud-mirror hit: ${doc} -> ${mirrored}`);
+        }
+      }
     } catch {
       /* unresolvable (cloud/unsaved) — keep the fallback */
     }
@@ -436,6 +453,27 @@ async function onPaneConnect(key, host, doc) {
   const cwd = cwdForKey(key);
   diag(`hello → replay key=${key} cwd=${cwd} (no loop start on connect)`);
   await sendTranscriptReplayTo(key, host, cwd);
+
+  // Cloud-doc nudge: the active document is a SharePoint/OneDrive URL,
+  // no local mapping was found, and the workspace fell back to the
+  // daemon's launch dir. Tell the user to do the one-time "Change
+  // workspace" pick — Draftspect will remember it via the cloud-mirror
+  // store and auto-apply next time. Shown once per pane lifetime.
+  const isCloudDocWithoutWorkspace =
+    isCloudUrl(doc) && !workspaceByKey.has(key) && !explicitWorkspaceKeys.has(key);
+  if (isCloudDocWithoutWorkspace && !cloudNudgeShownForKey.has(key)) {
+    cloudNudgeShownForKey.add(key);
+    bridge.sendAssistantEvent(
+      {
+        event: "info",
+        message:
+          "This document is on SharePoint or OneDrive, so the workspace can't auto-follow. " +
+          "Open Setup → Change workspace once and pick the local sync folder for this matter — " +
+          "Draftspect will remember the mapping and auto-apply it the next time you open a doc here.",
+      },
+      key,
+    );
+  }
 }
 
 // Called when a pane's WebSocket closes for good (the bridge already
@@ -448,6 +486,7 @@ function onPaneClose(key) {
   if (!key || sessionFor(key)) return;
   workspaceByKey.delete(key);
   explicitWorkspaceKeys.delete(key);
+  cloudNudgeShownForKey.delete(key);
   loopRestartByKey.delete(key);
   modelByKey.delete(key);
   startQueue.delete(key);
@@ -538,6 +577,25 @@ const bridge = createBridge({
             markerCreated = await ensureWorkspaceMarker(resolved);
           } catch (e) {
             console.warn(`[daemon] could not create CLAUDE.md in ${resolved}: ${e.message}`);
+          }
+          // Learning: if this pane's active doc is a cloud URL, record
+          // the URL-prefix → local-folder mapping so the next doc opened
+          // under that same prefix follows automatically. Doesn't run on
+          // local-file docs because the workspace resolver already
+          // handles those.
+          const ctx = bridge.getContext(key);
+          const docUrl = ctx?.activeDoc;
+          if (isCloudUrl(docUrl)) {
+            try {
+              const learned = await rememberCloudMirror(docUrl, resolved);
+              if (learned) {
+                console.log(
+                  `[daemon] cloud-mirror learned: ${learned.urlPrefix} -> ${learned.localFolder}`,
+                );
+              }
+            } catch (e) {
+              console.warn(`[daemon] could not record cloud-mirror: ${e.message}`);
+            }
           }
         }
         reply({
