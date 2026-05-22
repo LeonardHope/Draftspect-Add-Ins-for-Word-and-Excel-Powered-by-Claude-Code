@@ -29,17 +29,91 @@ const parseFallbackId = (id) => {
 
 async function getParagraphsWithIds(context) {
   const paragraphs = context.document.body.paragraphs;
+  // CRITICAL: load every per-item property we'll need in a SINGLE
+  // paragraphs.load() before the first sync. A second load/sync on the same
+  // paragraphs collection silently un-loads the previously-loaded scalars,
+  // so every later `p.text` read throws "property 'text' is not available."
+  // changeTrackingMode is a document-level scalar, not a paragraph property —
+  // safe to piggyback on the same sync, no scalar-refresh issue.
   try {
-    paragraphs.load("items/text, items/style, items/uniqueLocalId");
+    context.document.load("changeTrackingMode");
+    paragraphs.load(
+      "items/text, items/style, items/uniqueLocalId, items/listItemOrNullObject/listString",
+    );
     await context.sync();
     if (paragraphs.items.length > 0 && !paragraphs.items[0].uniqueLocalId) {
       throw new Error("uniqueLocalId not populated");
     }
-    return { paragraphs, idMode: "uniqueLocalId" };
+    const trackChangesOn = String(context.document.changeTrackingMode) !== "Off";
+    return { paragraphs, idMode: "uniqueLocalId", trackChangesOn };
   } catch {
+    context.document.load("changeTrackingMode");
     paragraphs.load("items/text, items/style");
     await context.sync();
-    return { paragraphs, idMode: "index" };
+    const trackChangesOn = String(context.document.changeTrackingMode) !== "Off";
+    return { paragraphs, idMode: "index", trackChangesOn };
+  }
+}
+
+// Pull a literally-typed bracketed paragraph number (e.g. "[0034]") off the
+// front of a paragraph's text. Fallback for docs that number paragraphs by
+// typing, not by Word list-numbering.
+function extractBracketedNumber(text) {
+  if (!text) return null;
+  const m = /^\s*(\[[^\]]+\])/.exec(text);
+  return m ? m[1] : null;
+}
+
+// The user-facing number for a paragraph. Preferred: Word's rendered list
+// number (e.g. "[0034]") via Paragraph.listItemOrNullObject.listString —
+// NOT present in paragraph.text, so a regex on text alone misses every
+// auto-numbered doc. Fallback: a literally-typed [NNNN] prefix in the text.
+// Used so the agent can cite paragraph numbers the user actually sees on
+// the page, instead of opaque uniqueLocalId hex strings.
+function listNumberOf(p, text) {
+  try {
+    const li = p.listItemOrNullObject;
+    if (li && !li.isNullObject) {
+      const s = li.listString;
+      if (s && String(s).trim()) return String(s).trim();
+    }
+  } catch {
+    /* listItemOrNullObject not loaded on this build / fallback path */
+  }
+  return extractBracketedNumber(text);
+}
+
+// Run a batch of getReviewedText(...) calls on ranges, working around
+// office-js#3691 (getReviewedText scrolls the document to the change). Save
+// the user's selection once, do the reads, restore the selection. Returns
+// an array of reviewed-text strings aligned with `ranges`, or null on any
+// failure (older builds without WordApi 1.4 — caller should fall back to
+// raw .text). office-js#5188 makes getTrackedChanges() unusable as an
+// alternative (TrackedChange.text returns empty for Deleted), so this is
+// the only supported path.
+async function getReviewedTextBatch(context, ranges) {
+  if (!ranges || ranges.length === 0) return [];
+  const saved = context.document.getSelection();
+  try {
+    const results = ranges.map((r) =>
+      r.getReviewedText(Word.ChangeTrackingVersion.current),
+    );
+    await context.sync();
+    try {
+      saved.select();
+      await context.sync();
+    } catch {
+      /* best effort — restore failure shouldn't mask the read */
+    }
+    return results.map((r) => r.value);
+  } catch {
+    try {
+      saved.select();
+      await context.sync();
+    } catch {
+      /* best effort */
+    }
+    return null;
   }
 }
 
@@ -96,14 +170,22 @@ function headingLevel(style) {
   return m ? parseInt(m[1], 10) : null;
 }
 
-// Build the "view" the agent sees: list of {id, style, text}.
+// Build the "view" the agent sees: list of {id, style, text, [number]}.
+// `number` is the user-facing paragraph number (Word's rendered list string,
+// or a literally-typed [NNNN]) when present — omitted otherwise, so the
+// agent's `if (p.number)` checks stay clean.
 function snapshotParagraphs(paragraphs, idMode) {
-  return paragraphs.items.map((p, i) => ({
-    index: i,
-    id: getId(p, i, idMode),
-    style: p.style,
-    text: p.text,
-  }));
+  return paragraphs.items.map((p, i) => {
+    const text = p.text;
+    const number = listNumberOf(p, text);
+    return {
+      index: i,
+      id: getId(p, i, idMode),
+      style: p.style,
+      text,
+      ...(number ? { number } : {}),
+    };
+  });
 }
 
 // Find the index of a heading paragraph by case-insensitive exact text match.
@@ -246,13 +328,21 @@ export async function toolGetSelection() {
     const sel = context.document.getSelection();
     sel.load("text");
     const selParas = sel.paragraphs;
+    context.document.load("changeTrackingMode");
 
     // Try to load uniqueLocalId directly on the selected paragraphs — that
     // gives us stable IDs without any text-matching against the full doc
     // (which is unsafe whenever the doc has repeated/boilerplate paragraphs).
+    // Pack ALL per-item properties (incl. listItemOrNullObject/listString
+    // for rendered numbers) into one load before the first sync — a second
+    // load/sync on the same paragraphs collection would silently un-load
+    // the previously-loaded scalars and make every subsequent .text read
+    // throw.
     let idMode = "uniqueLocalId";
     try {
-      selParas.load("items/text, items/style, items/uniqueLocalId");
+      selParas.load(
+        "items/text, items/style, items/uniqueLocalId, items/listItemOrNullObject/listString",
+      );
       await context.sync();
       if (selParas.items.length > 0 && !selParas.items[0].uniqueLocalId) {
         throw new Error("uniqueLocalId not populated");
@@ -262,19 +352,44 @@ export async function toolGetSelection() {
       await context.sync();
       idMode = "index";
     }
+    const trackChangesOn = String(context.document.changeTrackingMode) !== "Off";
 
-    const selSnapshot = selParas.items.map((p) => ({
-      // When uniqueLocalId is unavailable, return null rather than guessing
-      // an index by text-matching — duplicate paragraphs in any doc make
-      // text-match unreliable. The agent should fall back to text references.
-      id: idMode === "uniqueLocalId" ? p.uniqueLocalId : null,
-      style: p.style,
-      text: p.text,
-    }));
+    // When track changes is on, .text concatenates tracked deletions with
+    // their inserted replacements — the agent then sees "clean + stale"
+    // and tries to "fix" the duplicate by re-replacing it, stacking more
+    // tracked changes every turn. Use getReviewedText(current) on the
+    // selection AND each selected paragraph so the agent sees what the
+    // user sees with track changes accepted. Skipped when track changes
+    // is off (raw .text is correct then — zero behavior change).
+    let reviewedSelText = null;
+    let reviewedPerPara = null;
+    if (trackChangesOn) {
+      const ranges = [sel, ...selParas.items.map((p) => p.getRange())];
+      const reviewed = await getReviewedTextBatch(context, ranges);
+      if (reviewed) {
+        reviewedSelText = reviewed[0];
+        reviewedPerPara = reviewed.slice(1);
+      }
+    }
 
+    const selSnapshot = selParas.items.map((p, i) => {
+      const text = reviewedPerPara ? reviewedPerPara[i] : p.text;
+      const number = listNumberOf(p, p.text);
+      return {
+        // When uniqueLocalId is unavailable, return null rather than guessing
+        // an index by text-matching — duplicate paragraphs in any doc make
+        // text-match unreliable. The agent should fall back to text references.
+        id: idMode === "uniqueLocalId" ? p.uniqueLocalId : null,
+        style: p.style,
+        text,
+        ...(number ? { number } : {}),
+      };
+    });
+
+    const finalText = reviewedSelText != null ? reviewedSelText : sel.text;
     return {
-      text: sel.text,
-      is_empty: !sel.text || sel.text.length === 0,
+      text: finalText,
+      is_empty: !finalText || finalText.length === 0,
       paragraphs: selSnapshot,
       addressing: idMode,
     };
@@ -286,7 +401,7 @@ export async function toolGetSelection() {
 // ---------------------------------------------------------------------------
 export async function toolReadParagraphs({ ids, heading_section, range, preview }) {
   return await Word.run(async (context) => {
-    const { paragraphs, idMode } = await getParagraphsWithIds(context);
+    const { paragraphs, idMode, trackChangesOn } = await getParagraphsWithIds(context);
     const snapshot = snapshotParagraphs(paragraphs, idMode);
 
     let picked;
@@ -296,9 +411,14 @@ export async function toolReadParagraphs({ ids, heading_section, range, preview 
     // can also explicitly force `preview: false` in the no-args mode for a
     // full dump (heavy, but escape-hatch valid).
     let truncate = false;
+    // Track-changes-safe reads are only worth doing in targeted modes — the
+    // no-args preview is orientation only, calling getReviewedText on every
+    // paragraph would thrash the document view (office-js#3691) for no gain.
+    let isTargeted = false;
     if (ids && ids.length > 0) {
       const set = new Set(ids);
       picked = snapshot.filter((p) => set.has(p.id));
+      isTargeted = true;
     } else if (heading_section) {
       const startIdx = findHeadingIndex(snapshot, heading_section);
       if (startIdx === -1) {
@@ -306,9 +426,11 @@ export async function toolReadParagraphs({ ids, heading_section, range, preview 
       }
       const endIdx = findSectionEnd(snapshot, startIdx);
       picked = snapshot.slice(startIdx, endIdx);
+      isTargeted = true;
     } else if (range) {
       const [s, e] = range;
       picked = snapshot.slice(s, e);
+      isTargeted = true;
     } else {
       // Default: outline-ish view. Word documents in the wild use varied
       // heading conventions (built-in Heading N, custom style names, all-caps
@@ -319,6 +441,18 @@ export async function toolReadParagraphs({ ids, heading_section, range, preview 
       truncate = preview !== false;
     }
 
+    // With track changes on, raw .text concatenates a tracked deletion's
+    // original run with its inserted replacement — the agent reads back
+    // "clean + stale" and tries to "fix" the duplicate, stacking more
+    // tracked changes every turn. getReviewedText(current) returns what
+    // the user sees with the deletions accepted, which is what the agent
+    // should reason about. Skip in the preview pass (see above).
+    let reviewedByPicked = null;
+    if (isTargeted && trackChangesOn && picked.length > 0) {
+      const ranges = picked.map((p) => paragraphs.items[p.index].getRange());
+      reviewedByPicked = await getReviewedTextBatch(context, ranges);
+    }
+
     // Preview length: long enough to surface most in-paragraph references
     // (numbers, defined terms, citations) while still bounding the response
     // size on large docs. Was 117 originally — too aggressive; the agent
@@ -326,12 +460,14 @@ export async function toolReadParagraphs({ ids, heading_section, range, preview 
     const PREVIEW_LEN = 500;
 
     return {
-      paragraphs: picked.map((p) => {
-        const full = p.text;
+      paragraphs: picked.map((p, k) => {
+        const full =
+          reviewedByPicked && reviewedByPicked[k] != null ? reviewedByPicked[k] : p.text;
         const isTruncated = truncate && full.length > PREVIEW_LEN;
         return {
           id: p.id,
           style: p.style,
+          ...(p.number ? { number: p.number } : {}),
           text: isTruncated ? full.slice(0, PREVIEW_LEN - 1) + "…" : full,
           // Structured truncation flag so the agent doesn't have to detect
           // "…" suffixes. When `truncated` is true, the paragraph has more
@@ -1060,12 +1196,24 @@ export async function toolSetTableCell({ table_index, row, column, text, track_c
 
 // Tool: office_get_document_text — the full body text in one call (the
 // paragraph-range read tools are for targeted reads; this is the whole doc).
+// When track changes is on, use getReviewedText(current) so the agent sees
+// the doc as the user sees it with deletions accepted — raw body.text
+// concatenates tracked deletions with their replacements (see
+// toolReadParagraphs for the full rationale).
 export async function toolGetDocumentText() {
   return await Word.run(async (context) => {
     const body = context.document.body;
     body.load("text");
+    context.document.load("changeTrackingMode");
     await context.sync();
-    const text = body.text || "";
+    const trackChangesOn = String(context.document.changeTrackingMode) !== "Off";
+
+    let text = body.text || "";
+    if (trackChangesOn) {
+      const reviewed = await getReviewedTextBatch(context, [body]);
+      if (reviewed && reviewed[0] != null) text = reviewed[0];
+    }
+
     const words = text.trim() ? text.trim().split(/\s+/).length : 0;
     return { text, character_count: text.length, word_count: words };
   });
