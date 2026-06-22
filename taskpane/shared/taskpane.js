@@ -724,6 +724,11 @@ async function handleServerMessage(msg) {
 // ---- Request/response helper (for non-tool round-trips) -------------------
 const pendingRequests = new Map();
 const REQUEST_TIMEOUT_MS = 10_000;
+// pick_path opens a native open/save dialog that blocks on the user
+// browsing the filesystem — far longer than the 10s default. The daemon
+// has its own kill-switch (4 min) for a truly stuck PowerShell process,
+// so 5 min on this side is safe.
+const PICK_PATH_TIMEOUT_MS = 5 * 60_000;
 
 function sendRequest(type, payload = {}) {
   return new Promise((resolve, reject) => {
@@ -734,12 +739,13 @@ function sendRequest(type, payload = {}) {
     const request_id = uuid();
     pendingRequests.set(request_id, { resolve, reject });
     wsSend({ type, request_id, ...payload });
+    const timeoutMs = type === "pick_path" ? PICK_PATH_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
     setTimeout(() => {
       if (pendingRequests.has(request_id)) {
         pendingRequests.delete(request_id);
         reject(new Error(`Request "${type}" timed out`));
       }
-    }, REQUEST_TIMEOUT_MS);
+    }, timeoutMs);
   });
 }
 

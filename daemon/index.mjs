@@ -1,5 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { readFile, writeFile, mkdir, chmod } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { spawn, execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
@@ -238,6 +240,272 @@ function pickPathFromMain({ include_files, default_path, title, button_label }) 
     pendingPicks.set(id, { resolve, reject, timer });
     process.send({ type: "pick_path", id, include_files, default_path, title, button_label });
   });
+}
+
+// WSL fallback. When the daemon is launched directly (no Electron parent)
+// inside WSL, the user is almost certainly running Office on the Windows
+// host. Drive a real Windows folder/file dialog via powershell.exe so they
+// get a native picker, then translate the chosen `C:\…` path back to a WSL
+// path with `wslpath -u` — the daemon is a Linux process and needs the
+// /mnt/c/... form to read what was picked.
+const IS_WSL = (() => {
+  if (process.platform !== "linux") return false;
+  try {
+    return /microsoft|wsl/i.test(readFileSync("/proc/version", "utf8"));
+  } catch {
+    return false;
+  }
+})();
+
+// Windows-side %TEMP%, resolved once. We write the picker's result here:
+// it must be a real C:\… path. The /tmp path that JavaScript code would
+// reach for naturally resolves to \\wsl.localhost\… on Windows, and
+// PowerShell Set-Content blocks indefinitely against that UNC share —
+// the same hang that broke FolderBrowserDialog.SelectedPath. Resolved
+// lazily because the cmd.exe probe is only safe under WSL.
+let WIN_TEMP = null;
+function ensureWinTemp() {
+  if (WIN_TEMP !== null) return WIN_TEMP;
+  if (!IS_WSL) {
+    WIN_TEMP = "";
+    return WIN_TEMP;
+  }
+  try {
+    const out = execFileSync("cmd.exe", ["/c", "echo %TEMP%"], {
+      stdio: ["ignore", "pipe", "ignore"],
+    }).toString();
+    WIN_TEMP = out.replace(/[\r\n]+$/g, "").trim();
+  } catch {
+    WIN_TEMP = "";
+  }
+  return WIN_TEMP;
+}
+
+function runCapturing(cmd, args, { stdin = null, timeoutMs = null, label = null } = {}) {
+  return new Promise((resolveP, rejectP) => {
+    const p = spawn(cmd, args);
+    if (label) console.log(`[daemon] spawned ${label} pid=${p.pid}`);
+    let stdout = "";
+    let stderr = "";
+    let killedByTimeout = false;
+    p.stdout.on("data", (d) => (stdout += d.toString()));
+    p.stderr.on("data", (d) => (stderr += d.toString()));
+    p.on("error", rejectP);
+    const timer = timeoutMs
+      ? setTimeout(() => {
+          killedByTimeout = true;
+          console.warn(`[daemon] ${label ?? cmd} pid=${p.pid} exceeded ${timeoutMs}ms; killing`);
+          try {
+            p.kill("SIGKILL");
+          } catch {}
+        }, timeoutMs)
+      : null;
+    p.on("exit", (code, signal) => {
+      if (timer) clearTimeout(timer);
+      if (label)
+        console.log(
+          `[daemon] ${label} pid=${p.pid} exited code=${code} signal=${signal ?? ""} stdout=${stdout.length}B stderr=${stderr.length}B${killedByTimeout ? " (killed-by-timeout)" : ""}`,
+        );
+      resolveP({ code: code ?? 1, stdout, stderr, killedByTimeout });
+    });
+    // Always close stdin — even when there's nothing to write. node's
+    // default spawn leaves the pipe open, and powershell.exe under WSL
+    // interop blocks until it sees EOF on stdin (verified: the same
+    // -EncodedCommand worked instantly when invoked from bash). Some
+    // children (wslpath) close stdin before we get to .end(), so swallow
+    // the resulting EPIPE — the child doesn't read stdin in that case.
+    p.stdin.on("error", (e) => {
+      if (e.code !== "EPIPE") rejectP(e);
+    });
+    try {
+      p.stdin.end(stdin ?? "");
+    } catch (e) {
+      if (e.code !== "EPIPE") throw e;
+    }
+  });
+}
+
+async function toWindowsPath(wslPath) {
+  const r = await runCapturing("wslpath", ["-w", wslPath]);
+  if (r.code !== 0) throw new Error(`wslpath -w failed: ${r.stderr.trim()}`);
+  return r.stdout.trim();
+}
+async function toWslPath(winPath) {
+  const r = await runCapturing("wslpath", ["-u", winPath]);
+  if (r.code !== 0) throw new Error(`wslpath -u failed: ${r.stderr.trim()}`);
+  return r.stdout.trim();
+}
+
+async function pickPathViaWindowsDialog({ include_files, default_path, title }) {
+  // Best-effort: convert the start path to a Windows path for the dialog's
+  // initial location. Skip when:
+  //   - conversion failed (path doesn't map to a Windows location);
+  //   - the converted form is a UNC path (\\wsl.localhost\… for WSL-only
+  //     paths under /home). FolderBrowserDialog/OpenFileDialog block while
+  //     resolving the share before showing UI.
+  let initialDirWin = "";
+  if (default_path) {
+    try {
+      const w = await toWindowsPath(default_path);
+      if (!w.startsWith("\\\\")) initialDirWin = w;
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  // Use a temp file for the result. CRITICAL: the file must live on the
+  // Windows side (a real C:\ path), not in /tmp — /tmp is under the WSL
+  // share and Windows resolves it as the UNC path \\wsl.localhost\…,
+  // which Set-Content blocks on while attempting share access. That hang
+  // is the same one that broke FolderBrowserDialog.SelectedPath when
+  // pointed at a UNC path.
+  const winTemp = ensureWinTemp();
+  if (!winTemp) {
+    throw new Error("Could not resolve Windows %TEMP% — picker needs a C:\\ path for its result file");
+  }
+  const tag = randomUUID();
+  const resultWin = `${winTemp}\\draftspect-pick-${tag}.txt`;
+  const resultWsl = await toWslPath(resultWin);
+
+  const psQuote = (s) => String(s).replace(/'/g, "''");
+  const t = psQuote(title || (include_files ? "Choose a file" : "Choose a folder"));
+  const d = psQuote(initialDirWin);
+  const out = psQuote(resultWin);
+
+  // Phased instrumentation: writes a "phase" marker before each step.
+  // If the file never appears -> PS isn't even starting to execute the
+  // script. If it shows "phase:addtype" but no progress -> Add-Type
+  // hangs. If "phase:show" but no result -> ShowDialog hangs.
+  const script = include_files
+    ? `Set-Content -LiteralPath '${out}' -Value 'phase:enter' -Encoding UTF8 -NoNewline
+try {
+  Add-Type -AssemblyName System.Windows.Forms | Out-Null
+  Set-Content -LiteralPath '${out}' -Value 'phase:addtype' -Encoding UTF8 -NoNewline
+  $dlg = New-Object System.Windows.Forms.OpenFileDialog
+  $dlg.Title = '${t}'
+  ${d ? `$dlg.InitialDirectory = '${d}'` : ""}
+  $dlg.Filter = 'All files (*.*)|*.*'
+  $dlg.Multiselect = $false
+  $dlg.CheckFileExists = $true
+  Set-Content -LiteralPath '${out}' -Value 'phase:show' -Encoding UTF8 -NoNewline
+  $r = $dlg.ShowDialog()
+  if ($r -eq [System.Windows.Forms.DialogResult]::OK) {
+    Set-Content -LiteralPath '${out}' -Value ('OK' + [Environment]::NewLine + $dlg.FileName) -Encoding UTF8 -NoNewline
+  } else {
+    Set-Content -LiteralPath '${out}' -Value 'CANCEL' -Encoding UTF8 -NoNewline
+  }
+} catch {
+  Set-Content -LiteralPath '${out}' -Value ('ERR' + [Environment]::NewLine + $_.Exception.Message) -Encoding UTF8 -NoNewline
+}`
+    : `Set-Content -LiteralPath '${out}' -Value 'phase:enter' -Encoding UTF8 -NoNewline
+try {
+  Add-Type -AssemblyName System.Windows.Forms | Out-Null
+  Set-Content -LiteralPath '${out}' -Value 'phase:addtype' -Encoding UTF8 -NoNewline
+  $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+  $dlg.Description = '${t}'
+  ${d ? `$dlg.SelectedPath = '${d}'` : ""}
+  $dlg.ShowNewFolderButton = $true
+  Set-Content -LiteralPath '${out}' -Value 'phase:show' -Encoding UTF8 -NoNewline
+  $r = $dlg.ShowDialog()
+  if ($r -eq [System.Windows.Forms.DialogResult]::OK) {
+    Set-Content -LiteralPath '${out}' -Value ('OK' + [Environment]::NewLine + $dlg.SelectedPath) -Encoding UTF8 -NoNewline
+  } else {
+    Set-Content -LiteralPath '${out}' -Value 'CANCEL' -Encoding UTF8 -NoNewline
+  }
+} catch {
+  Set-Content -LiteralPath '${out}' -Value ('ERR' + [Environment]::NewLine + $_.Exception.Message) -Encoding UTF8 -NoNewline
+}`;
+
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
+  const PS_HARD_TIMEOUT_MS = 4 * 60_000;
+  // Launch via `cmd.exe /c start /WAIT /B powershell.exe …`. The daemon
+  // is started as a backgrounded WSL process (no controlling tty), and
+  // a `powershell.exe` spawned directly from that context will run the
+  // script up to ShowDialog() but then hang there forever — the dialog
+  // never appears on the interactive desktop. Wrapping in `cmd.exe /c
+  // start` allocates a fresh console attached to the user's interactive
+  // session; `/B` skips opening a visible window, `/WAIT` makes cmd
+  // block until PS exits so we get a deterministic exit code. The exact
+  // same powershell.exe + -EncodedCommand call ran cleanly from a
+  // foreground node invocation; the hang is specific to spawning Win32
+  // GUI processes from a backgrounded WSL parent.
+  const r = await new Promise((resolveP, rejectP) => {
+    // Use `start /WAIT ""` (no /B) so cmd allocates a fresh Win32
+    // console + interactive-desktop binding for PS. /B would just share
+    // the parent console — the same context the direct-spawn hang
+    // showed isn't workable. The empty "" is the window-title arg,
+    // required because `start` treats a quoted first arg as a title.
+    const p = spawn(
+      "cmd.exe",
+      [
+        "/c",
+        "start",
+        "/WAIT",
+        "",
+        "powershell.exe",
+        "-NoProfile",
+        "-STA",
+        "-EncodedCommand",
+        encoded,
+      ],
+      { stdio: "ignore" },
+    );
+    console.log(`[daemon] spawned cmd.exe (picker wrapper) pid=${p.pid}`);
+    let killed = false;
+    const timer = setTimeout(() => {
+      killed = true;
+      console.warn(`[daemon] picker pid=${p.pid} exceeded ${PS_HARD_TIMEOUT_MS}ms; killing`);
+      try {
+        p.kill("SIGKILL");
+      } catch {}
+    }, PS_HARD_TIMEOUT_MS);
+    p.on("error", rejectP);
+    p.on("exit", (code, signal) => {
+      clearTimeout(timer);
+      console.log(`[daemon] picker pid=${p.pid} exited code=${code} signal=${signal ?? ""}`);
+      resolveP({ code: code ?? 1, killed });
+    });
+  });
+
+  let body;
+  try {
+    body = await readFile(resultWsl, "utf8");
+  } catch (e) {
+    if (r.killed) throw new Error("Windows picker timed out (powershell.exe killed)");
+    throw new Error(`Picker produced no result file: ${e.message}`);
+  } finally {
+    // Best-effort cleanup; ignore failures.
+    void readFile(resultWsl)
+      .then(() => {})
+      .catch(() => {});
+  }
+
+  // PowerShell's `Set-Content -Encoding UTF8` writes a BOM. Strip it
+  // before parsing — otherwise the head ends up as "﻿OK" and the
+  // header check below fails.
+  const [head, ...rest] = body.replace(/^﻿/, "").split(/\r?\n/);
+  const payload = rest.join("\n");
+  if (head === "CANCEL") return { ok: true, canceled: true };
+  if (head === "ERR") throw new Error(`Windows picker error: ${payload}`);
+  if (head !== "OK") throw new Error(`Windows picker: unexpected result header: ${head}`);
+  if (!payload) return { ok: true, canceled: true };
+  const wslPath = await toWslPath(payload);
+  const s = await stat(wslPath);
+  return { ok: true, path: wslPath, kind: s.isDirectory() ? "directory" : "file" };
+}
+
+// Pick the right native-picker backend: Electron IPC when launched from
+// the tray (npm start), the Windows-via-PowerShell dialog when running
+// stand-alone under WSL (npm run dev), otherwise hard-error so the
+// taskpane shows a clear message instead of silently doing nothing.
+function pickPath(opts) {
+  if (process.send) return pickPathFromMain(opts);
+  if (IS_WSL) return pickPathViaWindowsDialog(opts);
+  return Promise.reject(
+    new Error(
+      "No native picker available — launch via Electron (npm start) or run the daemon under WSL.",
+    ),
+  );
 }
 
 // Word and Excel are fully independent surfaces: each host gets its own
@@ -492,13 +760,19 @@ const bridge = createBridge({
   onClose: (key) => onPaneClose(key),
   extraHandlers: {
     pick_path: async (msg, reply) => {
+      console.log(
+        `[daemon] pick_path: include_files=${!!msg.include_files} default_path=${msg.default_path ?? "(none)"}`,
+      );
       try {
-        const result = await pickPathFromMain({
+        const result = await pickPath({
           include_files: !!msg.include_files,
           default_path: msg.default_path || null,
           title: msg.title || null,
           button_label: msg.button_label || null,
         });
+        console.log(
+          `[daemon] pick_path result: ${result.canceled ? "(canceled)" : result.path ?? "(no path)"}`,
+        );
         reply({ type: "pick_path_result", request_id: msg.request_id, ...result });
       } catch (e) {
         reply({
