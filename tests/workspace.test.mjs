@@ -8,7 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -86,9 +86,24 @@ test("resolveWorkspaceRoot does NOT treat a Windows drive path as a URL (regress
   // Windows document path was discarded and the workspace fell back to
   // the daemon's launch dir. A drive path must resolve to a folder, not
   // null. (On non-Windows CI, path.resolve keeps the backslashes as
-  // filename chars — that's fine; the point is it's NOT null/URL.)
+  // filename chars — that's fine; the point is it's NOT null/URL. On
+  // WSL, wslpath translates the path to /mnt/c/... — also not null.)
   assert.notEqual(await resolveWorkspaceRoot("C:\\Users\\me\\Docs\\spec.docx"), null);
-  assert.notEqual(await resolveWorkspaceRoot("\\\\fileserver\\share\\spec.docx"), null);
+
+  // A UNC share-path verifies the same regex regression for the
+  // backslash-backslash form. On WSL the daemon can't reach an arbitrary
+  // SMB share without a mount, so wslpath fails and resolveWorkspaceRoot
+  // legitimately returns null — that's the correct "we can't address
+  // this" answer for a Linux-side daemon, not the URL-misclassification
+  // bug this test guards against. Skip on WSL.
+  const isWsl =
+    process.platform === "linux" &&
+    /microsoft|wsl/i.test(
+      await readFile("/proc/version", "utf8").catch(() => ""),
+    );
+  if (!isWsl) {
+    assert.notEqual(await resolveWorkspaceRoot("\\\\fileserver\\share\\spec.docx"), null);
+  }
 });
 
 test("resolveWorkspaceRoot returns null when the doc sits in an OS-managed $HOME child", async () => {
